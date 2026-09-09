@@ -67,6 +67,8 @@ final class Preferences: ObservableObject {
         static let showTitles = "showTitles"
         static let hasCompletedWelcome = "hasCompletedWelcome"
         static let clickOutsideDismisses = "clickOutsideDismisses"
+        static let openOnCurrentSpace = "openOnCurrentSpace"
+        static let dropToMinimize = "dropToMinimize"
     }
 
     private let defaults = UserDefaults.standard
@@ -87,6 +89,8 @@ final class Preferences: ObservableObject {
             Key.hotKeyEnabled: true,
             Key.showTitles: true,
             Key.clickOutsideDismisses: true,
+            Key.openOnCurrentSpace: true,
+            Key.dropToMinimize: true,
             Key.hasCompletedWelcome: false,
         ])
     }
@@ -134,6 +138,22 @@ final class Preferences: ObservableObject {
     var clickOutsideDismisses: Bool {
         get { defaults.bool(forKey: Key.clickOutsideDismisses) }
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.clickOutsideDismisses) }
+    }
+
+    /// Whether a restored window is pulled onto the desktop you are on, instead of macOS
+    /// sending you to the one it was minimized from.
+    ///
+    /// Depends on private Space APIs (see `SpacesBridge`). The toggle is disabled in Settings
+    /// when those are unavailable, rather than sitting there doing nothing.
+    var openOnCurrentSpace: Bool {
+        get { defaults.bool(forKey: Key.openOnCurrentSpace) && SpacesBridge.isAvailable }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.openOnCurrentSpace) }
+    }
+
+    /// Whether dragging a window against the left edge minimizes it into the panel.
+    var dropToMinimize: Bool {
+        get { defaults.bool(forKey: Key.dropToMinimize) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.dropToMinimize) }
     }
 
     var launchAtLogin: Bool {

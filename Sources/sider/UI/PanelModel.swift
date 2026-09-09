@@ -9,4 +9,13 @@ import SwiftUI
 final class PanelModel: ObservableObject {
     @Published var isOpen = false
     @Published var hovered: String?
+
+    /// A window is being dragged toward the edge and would be put away if released. Drives the
+    /// drop-target overlay — without it the panel opening mid-drag looks like a glitch rather
+    /// than an invitation.
+    @Published var isDropTarget = false
+
+    /// The card currently being dragged out of the panel. It is dimmed in the strip while a
+    /// `DragProxyWindow` carries its picture under the pointer.
+    @Published var dragging: String?
 }

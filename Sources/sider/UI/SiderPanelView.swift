@@ -9,6 +9,8 @@ struct SiderPanelView: View {
     @ObservedObject var thumbnails = ThumbnailService.shared
 
     let onRestore: (ManagedWindow) -> Void
+    let onDragChanged: (ManagedWindow, CGPoint) -> Void
+    let onDragEnded: (ManagedWindow, CGPoint) -> Void
 
     private var cardWidth: CGFloat { CGFloat(prefs.cardWidth) }
 
@@ -27,6 +29,8 @@ struct SiderPanelView: View {
                 )
                 .animation(.easeOut(duration: 0.22), value: model.isOpen)
 
+            if model.isDropTarget { dropTargetOverlay }
+
             content
                 .padding(.vertical, 12)
                 // Small, because each card carries its own horizontal slack for the hover
@@ -36,6 +40,30 @@ struct SiderPanelView: View {
                 .padding(.horizontal, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Shown while a window is being dragged at the edge. The panel opening on its own
+    /// mid-drag needs an explanation, or it reads as a glitch instead of an invitation.
+    private var dropTargetOverlay: some View {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [7, 5]))
+            .foregroundStyle(.tint)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.13))
+            )
+            .overlay(alignment: .bottom) {
+                Label("Drop to minimize", systemImage: "arrow.down.right.and.arrow.up.left")
+                    .font(.system(size: 11, weight: .medium))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.bottom, 18)
+            }
+            .transition(.opacity)
+            .zIndex(1)
+            .allowsHitTesting(false)
+            .animation(.easeOut(duration: 0.16), value: model.isDropTarget)
     }
 
     @ViewBuilder
@@ -77,7 +105,9 @@ struct SiderPanelView: View {
                             model: model,
                             onRestore: { onRestore(window) },
                             onClose: { registry.close(window) },
-                            onMinimize: { registry.minimize(window) }
+                            onMinimize: { registry.minimize(window) },
+                            onDragChanged: { onDragChanged(window, $0) },
+                            onDragEnded: { onDragEnded(window, $0) }
                         )
                     }
                 }

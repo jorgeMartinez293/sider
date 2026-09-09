@@ -26,6 +26,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hover.panelFrame = { [weak self] in self?.panel.visibleFrame }
         hover.onTrigger = { [weak self] screen in self?.panel.show(on: screen) }
         hover.onLeave = { [weak self] in self?.panel.hide() }
+        // While a card is being dragged out, the pointer is deliberately far from the panel —
+        // which every other rule here reads as "leave". Holding it open is what lets the
+        // gesture finish.
+        hover.holdOpen = { [weak self] in self?.panel.isDraggingCard ?? false }
+        hover.onPointerEnteredPanel = { [weak self] in self?.panel.focusForInteraction() }
+
+        // Dragging a window against the left edge puts it away.
+        hover.onWindowDragEnteredEdge = { [weak self] screen in self?.panel.showAsDropTarget(on: screen) }
+        hover.onWindowDragLeftEdge = { [weak self] in self?.panel.endDropTarget() }
+        hover.onWindowDropped = { [weak self] element in
+            self?.panel.endDropTarget()
+            WindowRegistry.shared.minimizeElement(element)
+        }
         hover.start()
 
         WindowRegistry.shared.start()

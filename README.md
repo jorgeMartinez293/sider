@@ -17,6 +17,12 @@ macOS 13 or later. Universal (Apple Silicon + Intel).
   the pointer. Cards fly in staggered from the edge and leave together.
 - **One click back.** Clicking a card un-minimizes the window, activates its app and raises
   that specific window — all three, in that order, or you end up somewhere you did not ask for.
+- **Drag a window to the left edge** to put it away. Hold it against the edge, the panel opens
+  as a drop target, let go.
+- **Drag a card out** to take a window back and place it where you drop it, instead of where
+  it happened to be before.
+- **It comes to you.** A restored window opens on the desktop (Space) you are on, not the one
+  it was minimized from — macOS's own behaviour would drag you across Spaces to fetch it.
 - **⌥⌘S** toggles the panel from anywhere.
 - **Scope.** Minimized windows only (the default), minimized plus apps hidden with ⌘H, or
   every window on the Mac.
@@ -42,7 +48,7 @@ Nothing is ever written to disk. The cache lives in memory and dies with the pro
 
 | Permission | Why | Without it |
 |---|---|---|
-| Accessibility | The only API that can see a minimized window and put it back. | The panel is empty. |
+| Accessibility | The only API that can see a minimized window, put it back, move it, and tell that you are dragging one. | The panel is empty. |
 | Screen Recording | Taking the preview pictures. | Cards fall back to app icons. |
 
 macOS applies a new grant only to a process that starts *afterwards*. If a toggle is on in
@@ -86,15 +92,17 @@ Sources/sider/
     Preferences.swift        every setting, persisted and observable
   Services/
     AccessibilityBridge.swift  typed AX layer, incl. the AXUIElement → CGWindowID join
+    SpacesBridge.swift         pulls a window onto the desktop you are on (private CGS API)
     WindowRegistry.swift       the live window list: AX observers + a safety poll
     ThumbnailService.swift     the rolling capture cache described above
-    EdgeHoverMonitor.swift     when the panel should open and close
+    EdgeHoverMonitor.swift     when the panel opens, closes, and when a window is dragged to it
     HotKeyManager.swift        ⌥⌘S
     LoginItemService.swift     launch at login + crash restart
     UpdaterService.swift       Sparkle
     SingleInstanceGuard.swift  never two panels
   UI/
-    SiderPanelController.swift the panel window and its open/close animation
+    SiderPanelController.swift the panel window, its slide animation, and card drag-out
+    DragProxyWindow.swift      the thumbnail that follows the pointer during a drag-out
     SiderPanelView.swift       the strip
     WindowCardView.swift       one card, including the Stage Manager tilt
     MenuBarController.swift    the menu bar item

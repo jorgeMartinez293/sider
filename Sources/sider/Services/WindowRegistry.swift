@@ -119,11 +119,10 @@ final class WindowRegistry: ObservableObject {
             let appName = app.localizedName ?? "App"
 
             for window in AccessibilityBridge.elements(appElement, kAXWindowsAttribute) {
-                // Standard windows only. Everything else — floating palettes, sheets, the
-                // system dialogs an app puts up — cannot be minimized independently and has
-                // no business in a list of things to go back to.
-                let subrole = AccessibilityBridge.string(window, kAXSubroleAttribute)
-                guard subrole == kAXStandardWindowSubrole as String else { continue }
+                // Real windows only — not sheets, palettes or system dialogs, none of which
+                // can be put away independently. See `isMinimizableWindow` for why this is
+                // not simply a subrole check.
+                guard AccessibilityBridge.isMinimizableWindow(window) else { continue }
 
                 let isMinimized = AccessibilityBridge.bool(window, kAXMinimizedAttribute) ?? false
                 let include: Bool
@@ -192,12 +191,31 @@ final class WindowRegistry: ObservableObject {
 
     // MARK: - Actions
 
-    /// Brings a window back and gives it the keyboard. The three steps are all required and
-    /// in this order: un-minimizing does not activate the app, activating does not choose
-    /// which of its windows comes forward, and raising alone leaves the app in the background.
-    func restore(_ window: ManagedWindow) {
+    /// Brings a window back and gives it the keyboard.
+    ///
+    /// `dropPoint` (Cocoa screen coordinates) places the window there — that is the drag-out
+    /// path. Passing nil leaves it wherever it was, which is the click path.
+    ///
+    /// The order of the steps is not interchangeable: un-minimizing does not activate the app,
+    /// activating does not choose *which* of its windows comes forward, and raising alone
+    /// leaves the app in the background.
+    func restore(_ window: ManagedWindow, at dropPoint: CGPoint? = nil) {
+        let moveToCurrentSpace = Preferences.shared.openOnCurrentSpace
         scanQueue.async {
+            // Before un-minimizing, not after. A minimized window keeps its CGWindowID and its
+            // Space assignment, so re-assigning it here means it simply comes back where you
+            // are. Doing it afterwards makes macOS switch you to its old desktop first and
+            // then switch back — the visible flick this exists to avoid.
+            if moveToCurrentSpace, let id = window.windowID {
+                SpacesBridge.moveToActiveSpace(id)
+            }
+
             AccessibilityBridge.setMinimized(window.element, false)
+
+            if let dropPoint {
+                self.place(window.element, atCocoa: dropPoint)
+            }
+
             DispatchQueue.main.async {
                 NSRunningApplication(processIdentifier: window.pid)?
                     .activate(options: [.activateIgnoringOtherApps])
@@ -205,6 +223,10 @@ final class WindowRegistry: ObservableObject {
             // A beat after activation: several apps (Safari, Finder) re-order their windows
             // as they come forward and would otherwise put a different one on top.
             self.scanQueue.asyncAfter(deadline: .now() + 0.12) {
+                // Again, because some apps re-assign their own Space as the window comes back.
+                if moveToCurrentSpace, let id = window.windowID {
+                    SpacesBridge.moveToActiveSpace(id)
+                }
                 AccessibilityBridge.focus(window.element)
                 AccessibilityBridge.raise(window.element)
                 self.refresh()
@@ -212,9 +234,36 @@ final class WindowRegistry: ObservableObject {
         }
     }
 
+    /// Positions a window so it sits under `point`, held inside the visible area of whichever
+    /// screen that point is on.
+    ///
+    /// The window is centred horizontally on the drop and its title bar put just below it, so
+    /// it lands where the card was let go and the pointer is already on the part you grab —
+    /// dropping a window with its title bar under the menu bar, or half off the right edge,
+    /// is the failure mode worth spending these few lines on.
+    private func place(_ element: AXUIElement, atCocoa point: CGPoint) {
+        guard let size = AccessibilityBridge.size(element, kAXSizeAttribute) else { return }
+        let screen = NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main
+        guard let area = screen?.visibleFrame else { return }
+
+        var origin = CGPoint(x: point.x - size.width / 2, y: point.y - 18)   // Cocoa: y is the TOP here
+        origin.x = min(max(origin.x, area.minX), area.maxX - min(size.width, area.width))
+        origin.y = min(max(origin.y, area.minY + min(size.height, area.height)), area.maxY)
+
+        // AXPosition is the top-left corner in top-left-origin coordinates.
+        AccessibilityBridge.setPosition(element, AccessibilityBridge.axPoint(fromCocoa: origin))
+    }
+
     func minimize(_ window: ManagedWindow) {
+        minimizeElement(window.element)
+    }
+
+    /// Minimizes a window sider only has an Accessibility handle for — the drag-to-the-edge
+    /// path, where the window is one the user is dragging and has never been in the registry
+    /// (it was not minimized, so nothing scanned it).
+    func minimizeElement(_ element: AXUIElement) {
         scanQueue.async {
-            AccessibilityBridge.setMinimized(window.element, true)
+            AccessibilityBridge.setMinimized(element, true)
             self.refresh()
         }
     }

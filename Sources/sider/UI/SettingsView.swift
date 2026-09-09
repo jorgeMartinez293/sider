@@ -48,6 +48,20 @@ struct SettingsView: View {
             Toggle("Close when you click elsewhere",
                    isOn: Binding(get: { prefs.clickOutsideDismisses },
                                  set: { prefs.clickOutsideDismisses = $0 }))
+
+            Divider().padding(.vertical, 4)
+
+            Toggle("Drag a window to the left edge to put it away",
+                   isOn: Binding(get: { prefs.dropToMinimize },
+                                 set: { prefs.dropToMinimize = $0 }))
+            Toggle("Open windows on the desktop you are on",
+                   isOn: Binding(get: { prefs.openOnCurrentSpace },
+                                 set: { prefs.openOnCurrentSpace = $0 }))
+                .disabled(!SpacesBridge.isAvailable)
+            if !SpacesBridge.isAvailable {
+                Text("Unavailable on this version of macOS — restored windows will reopen on the desktop they were minimized from.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Toggle("Toggle with ⌥⌘S",
                    isOn: Binding(get: { prefs.hotKeyEnabled },
                                  set: { prefs.hotKeyEnabled = $0; HotKeyManager.shared.apply(enabled: $0) }))
@@ -166,11 +180,18 @@ struct SettingsView: View {
             Text("Version \(updater.currentVersion) (build \(updater.currentBuild))")
                 .font(.caption).foregroundStyle(.secondary)
 
-            Toggle("Check for updates automatically", isOn: $automaticUpdates)
-                .onChange(of: automaticUpdates) { updater.automaticChecks = $0 }
-                .toggleStyle(.checkbox)
+            if UpdaterService.isConfigured {
+                Toggle("Check for updates automatically", isOn: $automaticUpdates)
+                    .onChange(of: automaticUpdates) { updater.automaticChecks = $0 }
+                    .toggleStyle(.checkbox)
 
-            Button("Check for Updates…") { updater.checkForUpdates() }
+                Button("Check for Updates…") { updater.checkForUpdates() }
+            } else {
+                Text("This build has no update signing key, so it cannot install updates.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
             Spacer()
         }
         .frame(maxWidth: .infinity)

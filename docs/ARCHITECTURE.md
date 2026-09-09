@@ -36,6 +36,12 @@ public equivalent, resolved through `dlsym` rather than declared `extern`. If Ap
 removes it, a nil lookup degrades sider to "no thumbnails"; an undefined symbol at link time
 would stop the binary launching at all.
 
+Classifying what counts as a window is its own trap. Subrole alone is not enough: **TextEdit
+reports ordinary document windows as `AXDialog`**, not `AXStandardWindow`, so a filter that
+only accepted the latter dropped them from the panel with no error anywhere. The reliable test
+is whether the window has a **minimize button**, because that is the same question restated —
+a window with one is a window macOS itself will put in the Dock.
+
 `AccessibilityBridge.application(pid:)` sets a 0.25 s messaging timeout. The default is six
 seconds, and every attribute read is a synchronous IPC round trip into another process — one
 beachballing app would otherwise stall a scan for six seconds *per window*.
@@ -58,6 +64,63 @@ that specific window — with a beat before the last step. Each is necessary: un
 not bring the app forward, activating does not choose *which* of its windows lands on top, and
 several apps (Safari, Finder) re-order their windows as they come forward and would otherwise
 put a different one in front of you.
+
+## Spaces: the window comes to you
+
+macOS remembers which Space a window belonged to and sends it back there when it is
+un-minimized. For sider that is wrong outright: the panel follows you across Spaces
+(`.canJoinAllSpaces`), so you can be on desktop 3, click a card, and be yanked to desktop 1.
+
+There is no public API for this. `SpacesBridge` uses the private SkyLight symbols
+(`CGSMainConnectionID`, `CGSGetActiveSpace`, `CGSMoveWindowsToManagedSpace`) through `dlsym`,
+so a future removal turns the feature off instead of stopping the binary from launching.
+
+The re-assignment happens **before** un-minimizing. A minimized window keeps its `CGWindowID`
+and its Space assignment, so moving it first means it simply comes back where you are; doing
+it afterwards makes macOS switch you to the old desktop and then switch back, which is the
+visible flick the whole thing exists to avoid.
+
+## Two drags
+
+**Into the panel.** `EdgeHoverMonitor` watches `NSEvent.pressedMouseButtons` alongside the
+pointer. On a press it records where; once the pointer has moved, it resolves the window under
+the press point (off the main thread — a hit test is IPC into another process) and then polls
+*that window's own position* at 5 Hz. Only when the window itself moves does this count as a
+window drag, which is what separates it from dragging a text selection to the edge. From
+there, reaching the edge opens the panel as a drop target and releasing minimizes.
+
+**Out of the panel.** A card's click and its drag-out are **one** `DragGesture`, resolved at
+the end by distance travelled. A separate `.onTapGesture` next to a `DragGesture` looks
+equivalent and is not: SwiftUI resolves the two against each other, the tap wins, and the
+drag-out silently never starts.
+
+The dragged thumbnail rides in its own borderless window (`DragProxyWindow`) because the card
+lives inside a `ScrollView` that clips to its bounds — and the entire gesture is about taking
+the window *out* of the strip.
+
+## Clicks in a panel that never activates
+
+The panel is non-activating, which means it is not the key window, which means every click on
+it is a "first click" — and AppKit spends a first click on focusing the window unless the view
+under the pointer returns true from `acceptsFirstMouse`. The views under the pointer are ones
+SwiftUI builds internally, and they do not.
+
+So the panel takes key status — but only when the pointer actually comes **inside** it, not
+when it opens. Tying it to opening would take the keyboard away from whatever you were typing
+every time you brushed the left edge. Waiting costs nothing: you cannot click a card without
+going there first.
+
+## The panel's own animation is hand-rolled
+
+`SiderPanelController.slide` interpolates the frame and alpha on a 60 Hz timer instead of using
+`NSAnimationContext` with `window.animator()`.
+
+That is not a preference. On this panel the animator proxy's `setFrame` and `alphaValue` were
+dropped outright — not animated *and* not applied — so the window sat parked off-screen at
+alpha 0 while every other part of the app believed it was open. Nothing in the API reports
+that; it silently does nothing, and the symptom (a panel that never appears, with correct
+geometry logged everywhere) points nowhere near the cause. Driving the interpolation directly
+is a dozen lines, always lands on the final value, and puts the easing curve in plain sight.
 
 ## EdgeHoverMonitor: a poll, not a trigger window
 

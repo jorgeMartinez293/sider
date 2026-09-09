@@ -25,6 +25,10 @@ struct WindowCardView: View {
     let onRestore: () -> Void
     let onClose: () -> Void
     let onMinimize: () -> Void
+    /// Called with the pointer's screen position while the card is being dragged out, and
+    /// once more when it is released.
+    let onDragChanged: (CGPoint) -> Void
+    let onDragEnded: (CGPoint) -> Void
 
     /// Resting angle. Small on purpose — Stage Manager's own strip is around 8–12°, and past
     /// roughly 15° the near edge of a wide card starts to clip through the screen border.
@@ -43,7 +47,16 @@ struct WindowCardView: View {
     /// anchor, and the hover shadow (radius 16, x-offset 6) reaching right.
     static let hoverHeadroom: CGFloat = 16
 
+    /// How far the pointer must travel before a press counts as dragging the card out rather
+    /// than clicking it. Below this a click still just restores the window where it was.
+    private static let dragThreshold: CGFloat = 8
+
+    private func isDragFar(_ translation: CGSize) -> Bool {
+        hypot(translation.width, translation.height) > Self.dragThreshold
+    }
+
     private var isHovered: Bool { model.hovered == window.id }
+    private var isDragging: Bool { model.dragging == window.id }
 
     private var height: CGFloat {
         let ratio = window.frame.height / max(window.frame.width, 1)
@@ -94,8 +107,35 @@ struct WindowCardView: View {
                 .delay(model.isOpen ? Double(index) * 0.035 : 0),
             value: model.isOpen
         )
+        // Dimmed while the DragProxyWindow carries its picture under the pointer, so the
+        // strip shows where the card came from without two copies of it on screen.
+        .opacity(isDragging ? 0.25 : 1)
         .onHover { model.hovered = $0 ? window.id : (model.hovered == window.id ? nil : model.hovered) }
-        .onTapGesture(perform: onRestore)
+        // Click and drag-out are ONE gesture, decided at the end by how far the pointer
+        // travelled. A separate `.onTapGesture` alongside a `DragGesture` looks equivalent and
+        // is not: SwiftUI resolves the two against each other and the tap wins, so the
+        // drag-out silently never starts. One gesture has no such contest.
+        //
+        // Positions come from `NSEvent.mouseLocation`, not from the gesture value: SwiftUI's
+        // `.global` space is global to the *window*, and the point that matters here is on the
+        // screen, usually well outside this one.
+        //
+        // The close button is a child view, and child gestures outrank a parent's, so it still
+        // gets its own clicks.
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    guard isDragFar(value.translation) else { return }
+                    onDragChanged(NSEvent.mouseLocation)
+                }
+                .onEnded { value in
+                    if isDragFar(value.translation) {
+                        onDragEnded(NSEvent.mouseLocation)
+                    } else {
+                        onRestore()
+                    }
+                }
+        )
         .contextMenu {
             Button(window.isMinimized ? "Bring Back" : "Bring to Front", action: onRestore)
             if !window.isMinimized {
