@@ -123,7 +123,6 @@ struct SiderPanelView: View {
                             showTitle: prefs.showTitles,
                             model: model,
                             onRestore: { onRestore(entry.window) },
-                            onClose: { registry.close(entry.window) },
                             onMinimize: { registry.minimize(entry.window) },
                             onDragChanged: { onDragChanged(entry.window, $0) },
                             onDragEnded: { onDragEnded(entry.window, $0) }

@@ -305,63 +305,6 @@ final class WindowRegistry: ObservableObject {
         }
     }
 
-    /// Closes the window with ⌘W.
-    ///
-    /// Not by pressing the window's own `AXCloseButton`, which is what this did first and is
-    /// the tidier idea: an app that draws its own title bar exposes the button and then
-    /// ignores `AXPress`. Discord does exactly that — the button is there, the press does
-    /// nothing, and the window stays. ⌘W is a menu item rather than a control, so every app
-    /// handles it.
-    ///
-    /// The cost is that ⌘W goes to whichever window has focus, so the target has to be given
-    /// focus first — which means bringing it out of the Dock. That is unavoidable: there is no
-    /// way to send a keystroke to a specific window, only to an app. The window is put back
-    /// afterwards if it did not close, so a shortcut the app ignores leaves things exactly as
-    /// they were rather than half-restored.
-    func close(_ window: ManagedWindow) {
-        let wasMinimized = window.isMinimized
-        scanQueue.async {
-            AccessibilityBridge.setMinimized(window.element, false)
-            AccessibilityBridge.focus(window.element)
-            AccessibilityBridge.raise(window.element)
-            DispatchQueue.main.async {
-                NSRunningApplication(processIdentifier: window.pid)?
-                    .activate(options: [.activateIgnoringOtherApps])
-            }
-
-            // Long enough for the window to actually be frontmost. Sent too early, the app
-            // routes ⌘W to whichever of its windows still holds focus — closing the wrong one,
-            // which is worse than not closing anything.
-            self.scanQueue.asyncAfter(deadline: .now() + 0.25) {
-                AccessibilityBridge.focus(window.element)
-                KeyStroke.commandW(to: window.pid)
-                self.scanQueue.asyncAfter(deadline: .now() + 0.45) {
-                    self.settleAfterClose(window, wasMinimized: wasMinimized)
-                }
-            }
-        }
-    }
-
-    /// Leaves the window in a sane state when ⌘W did not close it.
-    private func settleAfterClose(_ window: ManagedWindow, wasMinimized: Bool) {
-        guard AccessibilityBridge.isAlive(window.element) else { self.refresh(); return }
-
-        // Something is asking a question — an unsaved-changes sheet. Leave the window out and
-        // in front so it can be answered; putting it back would hide a modal dialog.
-        if AccessibilityBridge.hasSheet(window.element) {
-            AccessibilityBridge.raise(window.element)
-            self.refresh()
-            return
-        }
-
-        // The app ignored ⌘W. Put the window back where it was, so a close that does nothing
-        // is not silently a restore — which is exactly how this looked before.
-        if wasMinimized {
-            AccessibilityBridge.setMinimized(window.element, true)
-        }
-        self.refresh()
-    }
-
     // MARK: - Observers
 
     private func attachObserversToRunningApps() {

@@ -4,11 +4,16 @@ import SwiftUI
 /// One window in the panel: its last picture, tilted in 3D the way Stage Manager tilts the
 /// cards in its strip.
 ///
-/// The tilt is a `rotation3DEffect` about the vertical axis anchored at the card's trailing
-/// edge, so the edge nearest the screen border swings *away* from the viewer and the edge
-/// nearest the content swings toward it. That is the direction Stage Manager uses on the
-/// left, and it is what makes a flat rectangle read as a card standing in space rather than
-/// a screenshot pasted on the desktop.
+/// The tilt is a `rotation3DEffect` about the vertical axis anchored at the card's leading
+/// edge, so the cards lean to the right: the leading edge is pinned and the trailing edge
+/// is the one that recedes. It is what makes a flat rectangle read as a card standing in
+/// space rather than a screenshot pasted on the desktop.
+///
+/// Anchoring at the leading edge also decides what hovering *looks* like. Flattening a
+/// card anchored at its trailing edge pulls the leading edge in — the card appears to
+/// shrink on the left. Anchored at the leading edge it does the opposite: the trailing
+/// edge swings out and the card grows to the right, which reads as the card coming
+/// forward rather than as it losing a strip of itself.
 ///
 /// Hovering flattens the card (tilt → 0) and lifts it slightly. Flattening is the important
 /// half: a tilted card is decoration, and the moment the pointer is on it, it becomes a
@@ -23,7 +28,6 @@ struct WindowCardView: View {
     @ObservedObject var model: PanelModel
 
     let onRestore: () -> Void
-    let onClose: () -> Void
     let onMinimize: () -> Void
     /// Called with the pointer's screen position while the card is being dragged out, and
     /// once more when it is released.
@@ -43,8 +47,8 @@ struct WindowCardView: View {
     /// hovered card is sliced down its leading edge — the exact thing that looks broken,
     /// because it only happens to the card you are pointing at.
     ///
-    /// Sized for the worst case: 4% of the widest card growing leftward from the trailing
-    /// anchor, and the hover shadow (radius 16, x-offset 6) reaching right.
+    /// Sized for the worst case: 4% of the widest card growing rightward from the leading
+    /// anchor, plus the shadow (radius 9, x-offset 3) reaching a little further right.
     static let hoverHeadroom: CGFloat = 16
 
     /// How far the pointer must travel before a press counts as dragging the card out rather
@@ -58,8 +62,8 @@ struct WindowCardView: View {
     private var isHovered: Bool { model.hovered == window.id }
     private var isDragging: Bool { model.dragging == window.id }
 
-    /// 20% of the card's width, held to a sane range for very small and very large cards.
-    private var badgeSize: CGFloat { (width * 0.20).clamped(30, 56) }
+    /// 28% of the card's width, held to a sane range for very small and very large cards.
+    private var badgeSize: CGFloat { (width * 0.28).clamped(38, 72) }
 
     private var height: CGFloat {
         let ratio = window.frame.height / max(window.frame.width, 1)
@@ -74,22 +78,44 @@ struct WindowCardView: View {
             // is exactly what it looked like the first time: "Claude" rendered as "aude".
             // Stage Manager does the same thing — the picture is in space, the label is flat.
             preview
+                // Flatten the preview into ONE layer before the 3D transform.
+                //
+                // Without this the ZStack hands `rotation3DEffect` its layers — the material
+                // and the screenshot — separately, and Core Animation transforms each of
+                // them on its own. They are coplanar, so once the rotation is anything but a
+                // clean 0° or a settled resting angle their projected depths land within
+                // rounding error of each other and the compositor picks a different winner
+                // frame to frame, which shows up as a flicker during the hover animation.
+                //
+                // `compositingGroup`, not `drawingGroup`: this needs the layers merged, not
+                // rasterised. `drawingGroup` would flatten them into an offscreen bitmap at
+                // one fixed scale — which kills the `.ultraThinMaterial` behind the preview
+                // and re-softens the screenshot the `.interpolation(.high)` above works to
+                // keep sharp.
+                .compositingGroup()
                 .rotation3DEffect(
-                    // NEGATIVE: rotating the other way brings the leading edge *toward* the
-                    // viewer, which magnifies it and pushes it past the window's left edge.
-                    // This sign pushes the edge nearest the screen border away instead,
-                    // which is the direction Stage Manager tilts its strip.
-                    .degrees(isHovered ? 0 : -restingTilt),
+                    // Sign sets which way the card leans; this one leans it to the right.
+                    // The leading anchor pins the left edge, so flattening on hover widens
+                    // the card to the right instead of trimming it on the left.
+                    .degrees(isHovered ? 0 : restingTilt),
                     axis: (x: 0, y: 1, z: 0),
-                    anchor: .trailing,
+                    anchor: .leading,
                     // Shallow. A stronger perspective (larger value) exaggerates the near
                     // edge until the card looks like it is falling out of the screen.
                     perspective: 0.4
                 )
-                .scaleEffect(isHovered ? 1.04 : 1.0, anchor: .trailing)
-                .shadow(color: .black.opacity(isHovered ? 0.34 : 0.22),
-                        radius: isHovered ? 16 : 9, x: isHovered ? 6 : 3, y: 5)
+                .scaleEffect(isHovered ? 1.04 : 1.0, anchor: .leading)
+                // Constant: the card's depth cue does not change on hover. Growing the
+                // shadow as well made the hover read as two separate effects.
+                .shadow(color: .black.opacity(0.22), radius: 9, x: 3, y: 5)
                 .animation(.spring(response: 0.34, dampingFraction: 0.72), value: isHovered)
+                // The badge is attached OUTSIDE the transform stack on purpose. Inside it,
+                // the badge inherited the tilt, the perspective and the hover scale, so the
+                // icon swelled and sheared along with the picture — hover read as "the app
+                // icon grew" rather than "the preview came forward". Transforms do not
+                // affect layout, so this overlay lands on the preview's untransformed frame:
+                // the icon keeps one size and one place while only the picture moves.
+                .overlay(alignment: .bottomLeading) { iconBadge }
             if showTitle { caption }
         }
         .frame(width: width, alignment: .leading)
@@ -122,9 +148,6 @@ struct WindowCardView: View {
         // Positions come from `NSEvent.mouseLocation`, not from the gesture value: SwiftUI's
         // `.global` space is global to the *window*, and the point that matters here is on the
         // screen, usually well outside this one.
-        //
-        // The close button is a child view, and child gestures outrank a parent's, so it still
-        // gets its own clicks.
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
@@ -144,8 +167,6 @@ struct WindowCardView: View {
             if !window.isMinimized {
                 Button("Minimize", action: onMinimize)
             }
-            Divider()
-            Button("Close Window", action: onClose)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(window.appName): \(window.displayTitle)")
@@ -156,7 +177,7 @@ struct WindowCardView: View {
     // MARK: - Preview
 
     private var preview: some View {
-        ZStack(alignment: .bottomLeading) {
+        ZStack {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(.ultraThinMaterial)
 
@@ -177,26 +198,6 @@ struct WindowCardView: View {
             } else {
                 fallbackArt
             }
-
-            // App icon badge, so a window is identifiable at a glance even when its picture
-            // is a wall of text or was never captured.
-            //
-            // Sized against the card, not fixed: at a 200pt card this is 40pt, and it stays
-            // in proportion when the card is made bigger or smaller from Settings. The badge
-            // is often the *only* thing read at a glance — a shrunken window screenshot is
-            // rarely legible — so it earns the space.
-            if let icon = window.appIcon {
-                Image(nsImage: icon)
-                    .resizable()
-                    .frame(width: badgeSize, height: badgeSize)
-                    .shadow(color: .black.opacity(0.45), radius: 4, y: 1)
-                    .padding(8)
-            }
-
-            if isHovered {
-                closeButton
-                    .transition(.opacity.combined(with: .scale(scale: 0.7)))
-            }
         }
         .frame(width: width, height: height)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -204,6 +205,24 @@ struct WindowCardView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(.white.opacity(isHovered ? 0.35 : 0.14), lineWidth: 1)
         )
+    }
+
+    /// App icon badge, so a window is identifiable at a glance even when its picture is a
+    /// wall of text or was never captured.
+    ///
+    /// Sized against the card, not fixed: at a 200pt card this is 40pt, and it stays in
+    /// proportion when the card is made bigger or smaller from Settings. The badge is often
+    /// the *only* thing read at a glance — a shrunken window screenshot is rarely legible —
+    /// so it earns the space.
+    @ViewBuilder
+    private var iconBadge: some View {
+        if let icon = window.appIcon {
+            Image(nsImage: icon)
+                .resizable()
+                .frame(width: badgeSize, height: badgeSize)
+                .shadow(color: .black.opacity(0.45), radius: 4, y: 1)
+                .padding(4)
+        }
     }
 
     /// Shown until the first capture lands, and for any window that was already minimized
@@ -220,25 +239,6 @@ struct WindowCardView: View {
                     .frame(width: badgeSize * 1.9, height: badgeSize * 1.9)
                     .opacity(0.6)
             }
-        }
-        .frame(width: width, height: height)
-    }
-
-    private var closeButton: some View {
-        VStack {
-            HStack {
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 17, weight: .semibold))
-                        .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, .black.opacity(0.45))
-                }
-                .buttonStyle(.plain)
-                .help("Close this window")
-                .padding(6)
-            }
-            Spacer()
         }
         .frame(width: width, height: height)
     }

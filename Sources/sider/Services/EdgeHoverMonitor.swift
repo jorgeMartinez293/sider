@@ -45,6 +45,10 @@ final class EdgeHoverMonitor {
     /// would cancel the gesture halfway.
     var holdOpen: (() -> Bool)?
 
+    /// Height of the vertical hot zone as a fraction of the screen's visible height, centered
+    /// on the screen's vertical middle.
+    private static let hotZoneHeightFraction: CGFloat = 0.3
+
     private var timer: Timer?
     private let interval: TimeInterval = 0.05
 
@@ -271,10 +275,12 @@ final class EdgeHoverMonitor {
         case .underCursor:  candidates = NSScreen.screens
         }
         return candidates.first { screen in
-            // The pointer must be on this screen vertically as well: on a stacked or
-            // side-by-side arrangement, x can be within a few points of one screen's left
-            // edge while the pointer is physically on another.
-            guard screen.frame.minY...screen.frame.maxY ~= point.y else { return false }
+            // Vertically, the hot zone is a band centered on the screen's midpoint, not the
+            // full edge — so hovering near the top or bottom-left corner does not open the
+            // panel, only hovering near the vertical center does.
+            let bandHeight = screen.visibleFrame.height * Self.hotZoneHeightFraction
+            let midY = screen.visibleFrame.midY
+            guard midY - bandHeight / 2 ... midY + bandHeight / 2 ~= point.y else { return false }
             // visibleFrame, not frame: with the Dock pinned to the left edge, the "edge" the
             // user can actually reach is the Dock's right side. Measuring from frame.minX
             // there would put the hot zone underneath the Dock, where the pointer never
