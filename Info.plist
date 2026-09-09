@@ -38,7 +38,7 @@
 	<key>SUFeedURL</key>
 	<string>https://jorgeMartinez293.github.io/sider-releases/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string></string>
+	<string>D6HP6cHyAIGdVl0KspJbyy6+KtTqfG8F3Rs6/pkRTnY=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 </dict>
