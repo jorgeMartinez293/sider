@@ -81,3 +81,43 @@ final class CenteredStackLayoutTests: XCTestCase {
         }
     }
 }
+
+final class WindowPlacementTests: XCTestCase {
+
+    /// A 1512×982 display with the menu bar taken off the top and the Dock off the bottom.
+    private let screen = CGRect(x: 0, y: 61, width: 1512, height: 888)
+
+    func testCenteredPutsTheWindowInTheMiddle() {
+        let size = CGSize(width: 800, height: 600)
+        let origin = WindowRegistry.topLeft(for: .centered(in: screen), size: size)
+        XCTAssertNotNil(origin)
+        // Cocoa origin is the window's TOP edge, so the centre of the window sits half its
+        // height below it.
+        XCTAssertEqual(origin!.x + size.width / 2, screen.midX, accuracy: 0.5)
+        XCTAssertEqual(origin!.y - size.height / 2, screen.midY, accuracy: 0.5)
+    }
+
+    /// The clamp has to survive a window bigger than the screen. Pinned to the top-left beats
+    /// centred-and-unreachable: at least the title bar and the close button are on screen.
+    func testOversizeWindowStaysReachable() {
+        let size = CGSize(width: 2400, height: 1600)
+        let origin = WindowRegistry.topLeft(for: .centered(in: screen), size: size)!
+        XCTAssertEqual(origin.x, screen.minX, accuracy: 0.5)
+        XCTAssertEqual(origin.y, screen.maxY, accuracy: 0.5)
+    }
+
+    /// A drop near a corner must not leave the window half off the display.
+    func testDropIsHeldInsideTheScreen() {
+        let size = CGSize(width: 900, height: 700)
+        let corner = CGPoint(x: screen.maxX - 4, y: screen.minY + 4)
+        let origin = WindowRegistry.topLeft(for: .dropped(at: corner, in: screen), size: size)!
+        XCTAssertLessThanOrEqual(origin.x + size.width, screen.maxX + 0.5)
+        XCTAssertGreaterThanOrEqual(origin.x, screen.minX - 0.5)
+        XCTAssertLessThanOrEqual(origin.y, screen.maxY + 0.5)
+        XCTAssertGreaterThanOrEqual(origin.y - size.height, screen.minY - 0.5)
+    }
+
+    func testUnchangedMovesNothing() {
+        XCTAssertNil(WindowRegistry.topLeft(for: .unchanged, size: CGSize(width: 10, height: 10)))
+    }
+}

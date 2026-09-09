@@ -53,6 +53,9 @@ struct SettingsView: View {
 
             Divider().padding(.vertical, 4)
 
+            Toggle("Centre windows on screen when you open them",
+                   isOn: Binding(get: { prefs.centerOnOpen },
+                                 set: { prefs.centerOnOpen = $0 }))
             Toggle("Drag a window to the left edge to put it away",
                    isOn: Binding(get: { prefs.dropToMinimize },
                                  set: { prefs.dropToMinimize = $0 }))

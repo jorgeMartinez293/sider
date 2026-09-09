@@ -230,7 +230,11 @@ final class SiderPanelController {
     // MARK: - Actions
 
     private func restore(_ window: ManagedWindow) {
-        registry.restore(window)
+        // The screen the panel is on, which is the one the pointer is on, which is the one the
+        // user is looking at. Resolved here rather than inside the registry because the move
+        // runs off the main thread by then, and `NSScreen` is not something to hand across.
+        let area = screenUnderPointer().visibleFrame
+        registry.restore(window, placement: prefs.centerOnOpen ? .centered(in: area) : .unchanged)
         hide()
         onDismissAfterAction?()
     }
@@ -265,7 +269,9 @@ final class SiderPanelController {
         let overPanel = panel.frame.insetBy(dx: -24, dy: -8).contains(point)
         guard !overPanel else { return }
 
-        registry.restore(window, at: point)
+        let area = (NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) }
+                    ?? NSScreen.main)?.visibleFrame ?? .zero
+        registry.restore(window, placement: .dropped(at: point, in: area))
         hide()
         onDismissAfterAction?()
     }

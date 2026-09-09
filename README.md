@@ -23,6 +23,8 @@ macOS 13 or later. Universal (Apple Silicon + Intel).
   the pointer. Cards fly in staggered from the edge and leave together.
 - **One click back.** Clicking a card un-minimizes the window, activates its app and raises
   that specific window — all three, in that order, or you end up somewhere you did not ask for.
+  The window lands in the middle of the screen you are on, rather than wherever it happened to
+  be when you put it away. Switchable in Settings.
 - **Drag a window to the left edge** to put it away. Hold it against the edge, the panel opens
   as a drop target, let go.
 - **Drag a card out** to take a window back and place it where you drop it, instead of where

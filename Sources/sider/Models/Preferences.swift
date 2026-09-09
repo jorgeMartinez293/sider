@@ -72,6 +72,7 @@ final class Preferences: ObservableObject {
         static let centeredStack = "centeredStack"
         static let showPanelBackground = "showPanelBackground"
         static let openWhenEmpty = "openWhenEmpty"
+        static let centerOnOpen = "centerOnOpen"
     }
 
     private let defaults = UserDefaults.standard
@@ -99,6 +100,7 @@ final class Preferences: ObservableObject {
             // competing rectangle over whatever you were looking at.
             Key.showPanelBackground: false,
             Key.openWhenEmpty: false,
+            Key.centerOnOpen: true,
             Key.hasCompletedWelcome: false,
         ])
     }
@@ -191,6 +193,17 @@ final class Preferences: ObservableObject {
     var openWhenEmpty: Bool {
         get { defaults.bool(forKey: Key.openWhenEmpty) }
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.openWhenEmpty) }
+    }
+
+    /// Whether clicking a card puts the window in the middle of the screen you are on.
+    ///
+    /// On by default. A window that was minimized from the far corner of another display, or
+    /// left half off-screen, comes back somewhere you have to go looking for it — which is
+    /// the opposite of what a click on its preview asked for. Dragging a card out is
+    /// unaffected: there the drop point is the instruction.
+    var centerOnOpen: Bool {
+        get { defaults.bool(forKey: Key.centerOnOpen) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.centerOnOpen) }
     }
 
     var launchAtLogin: Bool {

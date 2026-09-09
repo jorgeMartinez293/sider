@@ -191,15 +191,26 @@ final class WindowRegistry: ObservableObject {
 
     // MARK: - Actions
 
-    /// Brings a window back and gives it the keyboard.
+    /// Where a restored window should land.
     ///
-    /// `dropPoint` (Cocoa screen coordinates) places the window there — that is the drag-out
-    /// path. Passing nil leaves it wherever it was, which is the click path.
+    /// Areas are passed in as rectangles rather than `NSScreen`s because the work happens off
+    /// the main thread; the caller resolves the screen while it still knows which one the
+    /// user was pointing at.
+    enum Placement {
+        /// Leave it exactly where it was.
+        case unchanged
+        /// Middle of `area` — a screen's `visibleFrame` in Cocoa coordinates.
+        case centered(in: CGRect)
+        /// Under `point`, held inside `area`. The drag-out path.
+        case dropped(at: CGPoint, in: CGRect)
+    }
+
+    /// Brings a window back and gives it the keyboard.
     ///
     /// The order of the steps is not interchangeable: un-minimizing does not activate the app,
     /// activating does not choose *which* of its windows comes forward, and raising alone
     /// leaves the app in the background.
-    func restore(_ window: ManagedWindow, at dropPoint: CGPoint? = nil) {
+    func restore(_ window: ManagedWindow, placement: Placement = .unchanged) {
         let moveToCurrentSpace = Preferences.shared.openOnCurrentSpace
         scanQueue.async {
             // Before un-minimizing, not after. A minimized window keeps its CGWindowID and its
@@ -212,9 +223,7 @@ final class WindowRegistry: ObservableObject {
 
             AccessibilityBridge.setMinimized(window.element, false)
 
-            if let dropPoint {
-                self.place(window.element, atCocoa: dropPoint)
-            }
+            self.place(window.element, placement)
 
             DispatchQueue.main.async {
                 NSRunningApplication(processIdentifier: window.pid)?
@@ -234,24 +243,52 @@ final class WindowRegistry: ObservableObject {
         }
     }
 
-    /// Positions a window so it sits under `point`, held inside the visible area of whichever
-    /// screen that point is on.
+    /// Moves a window to where the placement says, held inside the visible area.
     ///
-    /// The window is centred horizontally on the drop and its title bar put just below it, so
-    /// it lands where the card was let go and the pointer is already on the part you grab —
-    /// dropping a window with its title bar under the menu bar, or half off the right edge,
-    /// is the failure mode worth spending these few lines on.
-    private func place(_ element: AXUIElement, atCocoa point: CGPoint) {
-        guard let size = AccessibilityBridge.size(element, kAXSizeAttribute) else { return }
-        let screen = NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main
-        guard let area = screen?.visibleFrame else { return }
-
-        var origin = CGPoint(x: point.x - size.width / 2, y: point.y - 18)   // Cocoa: y is the TOP here
-        origin.x = min(max(origin.x, area.minX), area.maxX - min(size.width, area.width))
-        origin.y = min(max(origin.y, area.minY + min(size.height, area.height)), area.maxY)
-
+    /// Everything here works in Cocoa coordinates where `origin` is the window's **top-left**
+    /// corner — that is what `AXPosition` wants once flipped, and mixing it up puts windows
+    /// off the bottom of the screen.
+    ///
+    /// The clamp is the part worth keeping: a window dropped with its title bar under the menu
+    /// bar, or centred while taller than the screen, cannot be grabbed again.
+    private func place(_ element: AXUIElement, _ placement: Placement) {
+        guard let size = AccessibilityBridge.size(element, kAXSizeAttribute),
+              let origin = Self.topLeft(for: placement, size: size) else { return }
         // AXPosition is the top-left corner in top-left-origin coordinates.
         AccessibilityBridge.setPosition(element, AccessibilityBridge.axPoint(fromCocoa: origin))
+    }
+
+    /// Where a window of `size` should have its top-left corner, in Cocoa coordinates, or nil
+    /// to leave it alone.
+    ///
+    /// Pure so the arithmetic can be tested: this is geometry across a flipped axis — Cocoa's
+    /// y grows upward while a window's origin is its *top* edge — and getting it wrong sends
+    /// windows off the bottom of the screen, which is exactly the kind of thing that only
+    /// shows up on the one display you did not try.
+    static func topLeft(for placement: Placement, size: CGSize) -> CGPoint? {
+        let area: CGRect
+        var origin: CGPoint
+
+        switch placement {
+        case .unchanged:
+            return nil
+        case .centered(let visible):
+            area = visible
+            origin = CGPoint(x: visible.midX - size.width / 2,
+                             y: visible.midY + size.height / 2)
+        case .dropped(let point, let visible):
+            area = visible
+            // Centred horizontally on the drop, title bar just under the pointer: the window
+            // lands where the card was let go, already held by the part you grab.
+            origin = CGPoint(x: point.x - size.width / 2, y: point.y - 18)
+        }
+
+        // Held inside the visible area. A window whose title bar ends up under the menu bar,
+        // or off the right edge, cannot be grabbed again — and a window larger than the screen
+        // is pinned to the top-left rather than centred, so at least its controls are reachable.
+        origin.x = min(max(origin.x, area.minX), area.maxX - min(size.width, area.width))
+        origin.y = min(max(origin.y, area.minY + min(size.height, area.height)), area.maxY)
+        return origin
     }
 
     func minimize(_ window: ManagedWindow) {
