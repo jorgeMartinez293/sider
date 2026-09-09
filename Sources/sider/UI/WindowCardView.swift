@@ -163,6 +163,11 @@ struct WindowCardView: View {
             if let image = thumbnails.image(for: window.windowID) {
                 Image(nsImage: image)
                     .resizable()
+                    // Explicit, because the default is not guaranteed and this image is
+                    // always being scaled — text in a window preview is exactly the content
+                    // that falls apart under a cheap filter.
+                    .interpolation(.high)
+                    .antialiased(true)
                     // .fill, cropped to the card: window aspect ratios vary wildly (a
                     // terminal strip next to a full-screen browser) and letterboxing every
                     // one of them makes the strip look like a broken table.

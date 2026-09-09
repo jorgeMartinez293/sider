@@ -20,6 +20,32 @@ keeps the latest frame per `CGWindowID`, on three triggers —
 The visible consequence, documented in the README, is that a window already minimized at
 launch has no picture and falls back to its app icon.
 
+### Resolution, and a units bug worth remembering
+
+`SCStreamConfiguration.width`/`height` are in **pixels**. `SCWindow.frame` is in **points**.
+The original code computed `min(1, 600 / frame.width)` and applied it to the point size, which
+silently conflated the two: a 1512×888pt window — 3024×1776 real pixels on a 2× display — was
+captured at 600×352, a fifth of its resolution. The card draws at 200pt, which is 400 backing
+pixels, so there was barely any detail left to draw with. That is what "blurry previews" was.
+
+The budget now comes from what the card needs: its width in real pixels, doubled. The doubling
+is not slack — cropping to fill discards one axis entirely, and the hovered card scales up on
+top of that. It is never taken above the window's native resolution, since upsampling past
+that costs bytes and adds nothing.
+
+Two smaller things matter as much as the number:
+
+- `captureResolution = .best`. `.automatic` is free to hand back a downscaled frame.
+- `ignoreShadowsSingleWindow = true`. A window's drop shadow is a wide band of near-transparent
+  grey; captured, it eats pixels out of the budget and leaves a dirty edge once the card crops.
+
+And on the way out, `NSImage` is built with its size in **points** (pixels ÷ scale). An
+`NSImage` whose size equals its pixel count declares itself 1×, and AppKit then throws the
+extra resolution away on the way to the screen instead of using it.
+
+The cache is bounded in **bytes**, not entries: an entry runs from 0.4 MB to 6 MB depending on
+window and card size, so a fixed count either wastes the budget or overshoots it fourfold.
+
 Capture goes through **ScreenCaptureKit** on macOS 14+ and `CGWindowListCreateImage` only on
 13. That is not about deprecation warnings: since macOS 15 an app capturing through the old
 CoreGraphics call earns the recurring "…has been recording your screen" reminder, and
