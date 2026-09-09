@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>sider</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.jorge.sider</string>
+	<key>CFBundleName</key>
+	<string>sider</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<!-- Menu-bar only: sider has no Dock tile and no menu bar of its own. -->
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<!-- Shown in the Screen Recording consent prompt. Thumbnails of your windows are the
+	     whole product, so this is the one permission sider cannot work without. -->
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>sider takes a small picture of each window so it can show you a live preview in the side panel. The images stay on this Mac and are never written to disk or sent anywhere.</string>
+	<!-- ── Sparkle ────────────────────────────────────────────────────────────────
+	     SUPublicEDKey is filled in by scripts/setup-keys.sh on first setup. An empty
+	     value makes Sparkle refuse every update (it cannot verify a signature), which
+	     is the correct failure mode — never ship a build with this blank. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://jorgeMartinez293.github.io/sider-releases/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string></string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+</dict>
+</plist>

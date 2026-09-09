@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Distribution entitlements. sider needs no sandbox exception entitlements: the two
+     things it does (drive other apps' windows through the Accessibility API, and capture
+     window images) are TCC permissions the user grants by hand, not entitlements.
+
+     Deliberately WITHOUT com.apple.security.get-task-allow — that is debug-only and
+     notarization rejects a public build that carries it. -->
+<plist version="1.0">
+<dict/>
+</plist>

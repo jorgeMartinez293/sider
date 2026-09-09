@@ -1,0 +1,15 @@
+.DS_Store
+/.build
+.build/
+/Packages
+xcuserdata/
+DerivedData/
+.swiftpm/configuration/registries.json
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.netrc
+
+# create-dmg leftovers when it aborts mid-run (tens of MB — they break pushes)
+rw.*.dmg
+
+# Build product. What ships is the zip/dmg in dist/, not this bundle.
+/sider.app

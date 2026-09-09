@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Keeps sider running.
+
+  Registered by LoginItemService via SMAppService.agent(plistName:) and copied into
+  sider.app/Contents/Library/LaunchAgents by the Makefile, so it is sealed into the app's
+  code signature (SMAppService refuses a plist that isn't).
+
+  RunAtLoad starts sider at login (this replaces the plain login item — running both would
+  start two copies). KeepAlive/SuccessfulExit=false is the point of the file: launchd
+  restarts sider when it dies from a crash or any non-zero exit, but NOT when it exits
+  cleanly, which is what "Quit sider" does. So the edge panel comes back by itself after a
+  crash and stays gone when the user asks it to.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.jorge.sider.keepalive</string>
+	<!-- Path relative to the .app bundle: launchd resolves it wherever the app is installed. -->
+	<key>BundleProgram</key>
+	<string>Contents/MacOS/sider</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<!-- GUI session only: sider is a menu-bar app, useless in a non-Aqua context. -->
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<!-- UI app scheduling, not a background daemon's. -->
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<!-- Floor between relaunches, so a crash-on-launch bug can't spin. -->
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<!-- Files it under sider (not a bare label) in System Settings → Login Items. -->
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>com.jorge.sider</string>
+	</array>
+</dict>
+</plist>
