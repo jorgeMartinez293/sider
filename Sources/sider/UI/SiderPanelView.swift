@@ -16,19 +16,7 @@ struct SiderPanelView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            // The strip's own backdrop. Faint on purpose: the cards carry the visual weight,
-            // and a solid panel edge-to-edge would read as a sidebar the user has to close
-            // rather than something that came out to meet them.
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .opacity(model.isOpen ? 0.92 : 0)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(.white.opacity(0.10), lineWidth: 1)
-                        .opacity(model.isOpen ? 1 : 0)
-                )
-                .animation(.easeOut(duration: 0.22), value: model.isOpen)
-
+            if prefs.showPanelBackground { backdrop }
             if model.isDropTarget { dropTargetOverlay }
 
             content
@@ -42,8 +30,25 @@ struct SiderPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    /// Optional backing panel. Off by default: the cards already read as objects in front of
+    /// the desktop, and a second rectangle behind them competes with whatever the user was
+    /// actually looking at.
+    private var backdrop: some View {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .opacity(model.isOpen ? 0.92 : 0)
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
+                    .opacity(model.isOpen ? 1 : 0)
+            )
+            .animation(.easeOut(duration: 0.22), value: model.isOpen)
+    }
+
     /// Shown while a window is being dragged at the edge. The panel opening on its own
     /// mid-drag needs an explanation, or it reads as a glitch instead of an invitation.
+    /// Drawn whether or not the backdrop is on — it is the one moment the strip's *bounds*
+    /// are the message.
     private var dropTargetOverlay: some View {
         RoundedRectangle(cornerRadius: 18, style: .continuous)
             .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [7, 5]))
@@ -88,32 +93,63 @@ struct SiderPanelView: View {
                 }
             }
         } else if registry.windows.isEmpty {
+            // Only reachable when the panel was opened deliberately (menu bar, ⌥⌘S, or with
+            // "open when empty" turned on) — a hover over the edge with nothing put away does
+            // not open it at all.
             notice(icon: "rectangle.on.rectangle.slash",
                    title: "Nothing put away",
                    body: prefs.scope == .minimizedOnly
                         ? "Minimize a window and it shows up here."
                         : "No windows match what sider is set to collect.")
         } else {
+            strip
+        }
+    }
+
+    // MARK: - The strip
+
+    private var strip: some View {
+        GeometryReader { geo in
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    ForEach(Array(registry.windows.enumerated()), id: \.element.id) { index, window in
+                    ForEach(laidOut, id: \.window.id) { entry in
                         WindowCardView(
-                            window: window,
-                            index: index,
+                            window: entry.window,
+                            // The *recency* index, not the position in the layout, so the
+                            // entrance staggers outward from the newest card rather than
+                            // top-down across a stack whose middle arrived first.
+                            index: entry.index,
                             width: cardWidth,
                             showTitle: prefs.showTitles,
                             model: model,
-                            onRestore: { onRestore(window) },
-                            onClose: { registry.close(window) },
-                            onMinimize: { registry.minimize(window) },
-                            onDragChanged: { onDragChanged(window, $0) },
-                            onDragEnded: { onDragEnded(window, $0) }
+                            onRestore: { onRestore(entry.window) },
+                            onClose: { registry.close(entry.window) },
+                            onMinimize: { registry.minimize(entry.window) },
+                            onDragChanged: { onDragChanged(entry.window, $0) },
+                            onDragEnded: { onDragEnded(entry.window, $0) }
                         )
                     }
                 }
                 .padding(.vertical, 2)
+                // Centred vertically when it fits, scrolling normally when it does not.
+                // `minHeight` rather than `height`: forcing the height would stop a long
+                // stack from growing past the screen and quietly clip the ends off it.
+                .frame(minHeight: prefs.centeredStack ? geo.size.height : 0, alignment: .center)
             }
         }
+    }
+
+    /// The cards in the order they are drawn, top to bottom, each paired with its recency
+    /// index (0 = most recently put away).
+    ///
+    /// With `centeredStack` on the order comes from `CenteredStackLayout`.
+    private var laidOut: [(index: Int, window: ManagedWindow)] {
+        let windows = registry.windows
+        guard prefs.centeredStack else {
+            return windows.enumerated().map { (index: $0.offset, window: $0.element) }
+        }
+        return CenteredStackLayout.order(count: windows.count)
+            .map { (index: $0, window: windows[$0]) }
     }
 
     // MARK: - Notices
@@ -139,7 +175,11 @@ struct SiderPanelView: View {
         .frame(width: cardWidth, alignment: .leading)
         // Matches the cards' own padding so a notice lines up with where a card would be.
         .padding(.horizontal, WindowCardView.hoverHeadroom)
-        .padding(.top, 6)
+        .padding(14)
+        // A notice is words, not a picture, so it needs a surface of its own — with the
+        // backdrop off it would otherwise be small grey text lying on the wallpaper.
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .frame(maxHeight: .infinity, alignment: prefs.centeredStack ? .center : .top)
         .opacity(model.isOpen ? 1 : 0)
         .offset(x: model.isOpen ? 0 : -40)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: model.isOpen)

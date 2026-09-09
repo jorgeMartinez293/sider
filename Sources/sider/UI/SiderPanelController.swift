@@ -106,11 +106,30 @@ final class SiderPanelController {
 
     // MARK: - Show / hide
 
+    /// Menu bar and ⌥⌘S. `force` because these are asked for outright, and "nothing there"
+    /// is a legitimate answer to an explicit request — unlike to a pointer that brushed the
+    /// screen edge on its way somewhere else.
     func toggle(on screen: NSScreen? = nil) {
-        if isVisible { hide() } else { show(on: screen ?? screenUnderPointer()) }
+        if isVisible { hide() } else { show(on: screen ?? screenUnderPointer(), force: true) }
     }
 
-    func show(on screen: NSScreen) {
+    /// Whether there is anything worth sliding out for.
+    ///
+    /// A missing permission counts: the panel is the only place that explains why sider looks
+    /// dead, and suppressing it would leave a freshly installed app that does nothing at all
+    /// with no way to find out why.
+    private var hasSomethingToShow: Bool {
+        !registry.windows.isEmpty
+            || registry.needsAccessibility
+            || !ThumbnailService.shared.hasPermission
+    }
+
+    func show(on screen: NSScreen, force: Bool = false) {
+        // An empty panel sliding out to announce that it is empty is an interruption charged
+        // for touching the edge. With nothing put away there is nothing to come back to, so
+        // the hover does nothing at all.
+        guard force || prefs.openWhenEmpty || hasSomethingToShow else { return }
+
         let target = frame(on: screen)
 
         if isVisible {
@@ -197,7 +216,9 @@ final class SiderPanelController {
     /// deliberate as an intent gets.
     func showAsDropTarget(on screen: NSScreen) {
         model.isDropTarget = true
-        show(on: screen)
+        // Forced: an empty strip is exactly the case where the user most needs to see where
+        // the window they are holding is about to go.
+        show(on: screen, force: true)
     }
 
     /// The drag moved away, or ended. The panel itself is left alone — the pointer is still at

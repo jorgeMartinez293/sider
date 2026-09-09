@@ -49,3 +49,35 @@ final class ManagedWindowTests: XCTestCase {
         XCTAssertEqual(window.displayTitle, "Finder")
     }
 }
+
+final class CenteredStackLayoutTests: XCTestCase {
+
+    /// The whole point of the layout: whatever the count, the most recent window (index 0)
+    /// lands in the middle of the strip, so the card you are most likely to want back is
+    /// always in the same place on screen.
+    func testMostRecentSitsInTheMiddle() {
+        for count in 1...12 {
+            let order = CenteredStackLayout.order(count: count)
+            let middle = order.firstIndex(of: 0)
+            XCTAssertNotNil(middle, "count \(count)")
+            // With an even count one side carries the extra card, so the anchor is allowed to
+            // be half a slot off centre — but never further.
+            let distanceFromCentre = abs(Double(middle!) - Double(count - 1) / 2)
+            XCTAssertLessThanOrEqual(distanceFromCentre, 0.5, "count \(count) → \(order)")
+        }
+    }
+
+    func testAlternatesOutwardFromTheAnchor() {
+        XCTAssertEqual(CenteredStackLayout.order(count: 5), [4, 2, 0, 1, 3])
+        XCTAssertEqual(CenteredStackLayout.order(count: 4), [2, 0, 1, 3])
+        XCTAssertEqual(CenteredStackLayout.order(count: 1), [0])
+    }
+
+    /// Every window must be drawn exactly once — a layout that dropped or duplicated an index
+    /// would lose a card, or crash the view when it subscripts the array twice.
+    func testIsAPermutation() {
+        for count in 0...20 {
+            XCTAssertEqual(CenteredStackLayout.order(count: count).sorted(), Array(0..<count))
+        }
+    }
+}

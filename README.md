@@ -12,7 +12,13 @@ macOS 13 or later. Universal (Apple Silicon + Intel).
 
 - **Edge hover.** A dwell at the left edge opens the panel; moving away closes it. Both
   delays are adjustable, because how fast people move a pointer differs more than any other
-  setting in the app.
+  setting in the app. With nothing put away, the hover does nothing at all — an empty panel
+  sliding out to announce that it is empty is a charge for brushing the edge.
+- **Stacked from the middle.** The window you just put away sits at the vertical centre of
+  the screen and the rest spread out above and below it, so the newest card is always in the
+  same place. Switch it off in Settings for a plain list from the top.
+- **No panel, just windows.** The previews float straight on the desktop. A backing panel is
+  available in Settings for anyone who wants the edge drawn in.
 - **Real previews.** Each card is a picture of that window, tilted in 3D and flattening under
   the pointer. Cards fly in staggered from the edge and leave together.
 - **One click back.** Clicking a card un-minimizes the window, activates its app and raises

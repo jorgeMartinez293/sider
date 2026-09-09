@@ -58,6 +58,9 @@ struct WindowCardView: View {
     private var isHovered: Bool { model.hovered == window.id }
     private var isDragging: Bool { model.dragging == window.id }
 
+    /// 20% of the card's width, held to a sane range for very small and very large cards.
+    private var badgeSize: CGFloat { (width * 0.20).clamped(30, 56) }
+
     private var height: CGFloat {
         let ratio = window.frame.height / max(window.frame.width, 1)
         return (width * ratio).clamped(90, 190)
@@ -172,12 +175,17 @@ struct WindowCardView: View {
 
             // App icon badge, so a window is identifiable at a glance even when its picture
             // is a wall of text or was never captured.
+            //
+            // Sized against the card, not fixed: at a 200pt card this is 40pt, and it stays
+            // in proportion when the card is made bigger or smaller from Settings. The badge
+            // is often the *only* thing read at a glance — a shrunken window screenshot is
+            // rarely legible — so it earns the space.
             if let icon = window.appIcon {
                 Image(nsImage: icon)
                     .resizable()
-                    .frame(width: 26, height: 26)
-                    .shadow(color: .black.opacity(0.4), radius: 3, y: 1)
-                    .padding(7)
+                    .frame(width: badgeSize, height: badgeSize)
+                    .shadow(color: .black.opacity(0.45), radius: 4, y: 1)
+                    .padding(8)
             }
 
             if isHovered {
@@ -200,10 +208,12 @@ struct WindowCardView: View {
             LinearGradient(colors: [.gray.opacity(0.28), .gray.opacity(0.12)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
             if let icon = window.appIcon {
+                // Bigger than the badge: with no screenshot this *is* the card, and it is
+                // all there is to recognise the window by.
                 Image(nsImage: icon)
                     .resizable()
-                    .frame(width: 44, height: 44)
-                    .opacity(0.55)
+                    .frame(width: badgeSize * 1.9, height: badgeSize * 1.9)
+                    .opacity(0.6)
             }
         }
         .frame(width: width, height: height)
@@ -241,6 +251,10 @@ struct WindowCardView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
+        // With the panel background off, these labels sit directly on the desktop, which can
+        // be any colour at all. A soft dark halo keeps them readable on a light wallpaper
+        // without turning into a visible outline on a dark one.
+        .shadow(color: .black.opacity(0.55), radius: 3)
         .padding(.horizontal, 2)
         // Hard width limit. Without it a long window title lays itself out wider than the
         // card and is clipped by the panel's edge rather than truncated with an ellipsis.

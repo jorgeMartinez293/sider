@@ -69,6 +69,9 @@ final class Preferences: ObservableObject {
         static let clickOutsideDismisses = "clickOutsideDismisses"
         static let openOnCurrentSpace = "openOnCurrentSpace"
         static let dropToMinimize = "dropToMinimize"
+        static let centeredStack = "centeredStack"
+        static let showPanelBackground = "showPanelBackground"
+        static let openWhenEmpty = "openWhenEmpty"
     }
 
     private let defaults = UserDefaults.standard
@@ -91,6 +94,11 @@ final class Preferences: ObservableObject {
             Key.clickOutsideDismisses: true,
             Key.openOnCurrentSpace: true,
             Key.dropToMinimize: true,
+            Key.centeredStack: true,
+            // Off: the cards are the interface. A backing panel behind them is a second,
+            // competing rectangle over whatever you were looking at.
+            Key.showPanelBackground: false,
+            Key.openWhenEmpty: false,
             Key.hasCompletedWelcome: false,
         ])
     }
@@ -154,6 +162,34 @@ final class Preferences: ObservableObject {
     var dropToMinimize: Bool {
         get { defaults.bool(forKey: Key.dropToMinimize) }
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.dropToMinimize) }
+    }
+
+    /// Where the strip grows from.
+    ///
+    /// On: the most recently minimized window sits at the vertical middle of the screen and
+    /// the rest alternate outward from it, so the newest card is always in the same place —
+    /// under the pointer, at eye level — however many there are. Off: a plain list from the
+    /// top, which is easier to scan when there are many.
+    var centeredStack: Bool {
+        get { defaults.bool(forKey: Key.centeredStack) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.centeredStack) }
+    }
+
+    /// Whether to draw a panel behind the cards. Off by default — see the registered value.
+    var showPanelBackground: Bool {
+        get { defaults.bool(forKey: Key.showPanelBackground) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.showPanelBackground) }
+    }
+
+    /// Whether hovering the edge opens an empty panel.
+    ///
+    /// Off by default: with nothing put away there is nothing to come back to, and a panel
+    /// sliding out to say so is an interruption charged for brushing the edge on the way
+    /// somewhere else. The menu bar item and ⌥⌘S still open it regardless — those are asked
+    /// for, and their answer may well be "nothing there".
+    var openWhenEmpty: Bool {
+        get { defaults.bool(forKey: Key.openWhenEmpty) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.openWhenEmpty) }
     }
 
     var launchAtLogin: Bool {

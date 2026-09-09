@@ -43,8 +43,9 @@ struct SettingsView: View {
 
             Divider().padding(.vertical, 4)
 
-            Toggle("Show window titles", isOn: Binding(get: { prefs.showTitles },
-                                                        set: { prefs.showTitles = $0 }))
+            Toggle("Open on hover even when nothing is put away",
+                   isOn: Binding(get: { prefs.openWhenEmpty },
+                                 set: { prefs.openWhenEmpty = $0 }))
             Toggle("Close when you click elsewhere",
                    isOn: Binding(get: { prefs.clickOutsideDismisses },
                                  set: { prefs.clickOutsideDismisses = $0 }))
@@ -79,8 +80,22 @@ struct SettingsView: View {
                 slider("Preview size", value: Binding(get: { prefs.cardWidth },
                                                        set: { prefs.cardWidth = $0 }),
                        range: 120...340, unit: "pt")
+                Toggle("Show window titles", isOn: Binding(get: { prefs.showTitles },
+                                                            set: { prefs.showTitles = $0 }))
             } footer: {
                 Text("How wide each window preview is.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Stack from the middle",
+                       isOn: Binding(get: { prefs.centeredStack },
+                                     set: { prefs.centeredStack = $0 }))
+                Toggle("Show a panel behind the previews",
+                       isOn: Binding(get: { prefs.showPanelBackground },
+                                     set: { prefs.showPanelBackground = $0 }))
+            } footer: {
+                Text("Stacked from the middle, the window you just put away sits at the centre of the screen and the others spread out above and below it, so the newest one is always in the same place. Off, they list from the top.\n\nWithout the panel behind them the previews float straight on your desktop.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
