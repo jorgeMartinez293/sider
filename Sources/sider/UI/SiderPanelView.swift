@@ -28,8 +28,12 @@ struct SiderPanelView: View {
                 .animation(.easeOut(duration: 0.22), value: model.isOpen)
 
             content
-                .padding(.vertical, 14)
-                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                // Small, because each card carries its own horizontal slack for the hover
+                // state (`WindowCardView.hoverHeadroom`). Padding the container instead
+                // would put the gap *outside* the ScrollView's clip, where it does the
+                // hovered card no good.
+                .padding(.horizontal, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -77,9 +81,6 @@ struct SiderPanelView: View {
                         )
                     }
                 }
-                // Room for the shadow and the hover scale-up, which would otherwise be
-                // clipped by the ScrollView's bounds on the right.
-                .padding(.trailing, 10)
                 .padding(.vertical, 2)
             }
         }
@@ -106,6 +107,8 @@ struct SiderPanelView: View {
             }
         }
         .frame(width: cardWidth, alignment: .leading)
+        // Matches the cards' own padding so a notice lines up with where a card would be.
+        .padding(.horizontal, WindowCardView.hoverHeadroom)
         .padding(.top, 6)
         .opacity(model.isOpen ? 1 : 0)
         .offset(x: model.isOpen ? 0 : -40)

@@ -32,10 +32,21 @@ final class SiderPanelController {
     /// be inside the hot zone, and the panel would bounce straight back open.
     var onDismissAfterAction: (() -> Void)?
 
-    private let openDuration: TimeInterval = 0.26
-    private let closeDuration: TimeInterval = 0.19
-    /// How far off the left edge the window starts and ends its travel.
-    private let slideDistance: CGFloat = 34
+    private let openDuration: TimeInterval = 0.32
+    private let closeDuration: TimeInterval = 0.24
+
+    /// Where the window sits when it is "away": entirely past the left edge of `frame`'s
+    /// screen, not merely nudged toward it.
+    ///
+    /// A short nudge plus a fade reads as the panel materialising in place. Travelling its
+    /// own full width means the last thing you see on close is the panel's trailing edge
+    /// disappearing into the side of the screen, and the first thing you see on open is that
+    /// same edge coming back out of it — which is the whole illusion the panel trades on.
+    private func offscreenFrame(for target: NSRect) -> NSRect {
+        var away = target
+        away.origin.x = target.minX - target.width - 16
+        return away
+    }
 
     init() {
         panel = SiderPanel(
@@ -79,9 +90,10 @@ final class SiderPanelController {
     /// Dock on the left pushes the panel clear of it instead of hiding behind it.
     private func frame(on screen: NSScreen) -> NSRect {
         let area = screen.visibleFrame
-        // Card + the view's own padding + room for the hover scale-up and the card shadow,
-        // which would otherwise be clipped by the window's edge.
-        let width = CGFloat(prefs.cardWidth) + 46
+        // Card + the strip's 6pt container padding on each side + the per-card slack the
+        // hover state needs on each side (`WindowCardView.hoverHeadroom`), plus a little
+        // over so the hover shadow has somewhere to fall.
+        let width = CGFloat(prefs.cardWidth) + 12 + WindowCardView.hoverHeadroom * 2 + 8
         return NSRect(x: area.minX + 8,
                       y: area.minY + 12,
                       width: width,
@@ -113,11 +125,10 @@ final class SiderPanelController {
         registry.setPanelVisible(true)
         ThumbnailService.shared.refreshVisible()
 
-        // Start tucked behind the screen edge and transparent, so the first frame the user
-        // sees is the panel already on its way out rather than sitting at its destination.
-        var start = target
-        start.origin.x -= slideDistance
-        panel.setFrame(start, display: false)
+        // Start fully off the side of the screen and transparent, so the first frame the
+        // user sees is the panel already on its way out rather than sitting at its
+        // destination.
+        panel.setFrame(offscreenFrame(for: target), display: false)
         panel.alphaValue = 0
         panel.orderFrontRegardless()
 
@@ -147,8 +158,7 @@ final class SiderPanelController {
         model.isOpen = false
         model.hovered = nil
 
-        var gone = panel.frame
-        gone.origin.x -= slideDistance
+        let gone = offscreenFrame(for: panel.frame)
 
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = closeDuration
@@ -217,4 +227,12 @@ final class SiderPanelController {
 final class SiderPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// AppKit's default implementation keeps a window on screen. The open and close
+    /// animations deliberately park this one entirely past the screen's left edge, and
+    /// without this override AppKit quietly clamps it back — the panel then fades in place
+    /// instead of sliding in from the side, with nothing in the code to explain why.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
 }

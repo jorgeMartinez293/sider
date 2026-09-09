@@ -82,11 +82,17 @@ first, since the entire point is to get somewhere else.
 so it follows you between Spaces and is reachable over another app's full-screen window, which
 is where hunting for a minimized window hurts most.
 
-Opening is two animations at once: the window slides out from behind the screen edge and fades
-up (so it reads as coming *out of* the edge, not being drawn on top of it), while the cards
-spring in from the same direction, staggered top to bottom, so the strip assembles. Closing
-reverses only the window's half — a staggered exit reads as the panel struggling to get out of
-the way.
+Opening is two animations at once: the window travels **its own full width** in from off the
+side of the screen and fades up, while the cards spring in from the same direction, staggered
+top to bottom, so the strip assembles as it arrives. The full-width travel is the point — a
+short nudge plus a fade reads as the panel materialising in place, whereas this way the last
+thing you see on close is the panel's trailing edge disappearing into the side of the screen.
+It needs `SiderPanel.constrainFrameRect` to return its argument untouched: AppKit's default
+keeps windows on screen and would quietly clamp the off-screen resting frame back, leaving a
+fade with nothing in the code to explain the missing slide.
+
+Closing reverses only the window's half — a staggered exit reads as the panel struggling to
+get out of the way.
 
 `PanelModel.isOpen` is flipped *after* the window is ordered in and *before* it is ordered
 out, so SwiftUI has real frames to animate between rather than the content appearing already
@@ -96,3 +102,17 @@ Cards carry a `rotation3DEffect` about the vertical axis anchored at their trail
 the edge nearest the screen border leans away and the inner edge leans toward you — the
 direction Stage Manager uses on the left. Hovering flattens the card to 0°, because a tilted
 card is decoration and a card under the pointer is a target.
+
+Two things about that tilt are easy to get backwards, and both look like rendering bugs:
+
+- **The sign.** Rotating the other way brings the leading edge *toward* the viewer, which
+  perspective magnifies — the card and its label spill past the window's left edge.
+- **What it is applied to.** The tilt is on the preview alone. Rotating the caption with it
+  magnifies the near end of the text and clips the first characters ("Claude" rendered as
+  "aude"). Stage Manager does the same: the picture is in space, the label is flat.
+
+And the flattened, hovered card is *wider* than the tilted one — perspective pulls the
+receding edge inward, and `scaleEffect` does not participate in layout, so the extra pixels
+land outside the frame the `ScrollView` clips to. `WindowCardView.hoverHeadroom` reserves that
+slack around each card. It has to be padding on the card, not on the strip: padding the
+container puts the gap outside the clip, where it does the hovered card no good.

@@ -30,6 +30,19 @@ struct WindowCardView: View {
     /// roughly 15° the near edge of a wide card starts to clip through the screen border.
     private let restingTilt: Double = 11
 
+    /// Slack reserved around the card inside the scrolling strip.
+    ///
+    /// A tilted card is *narrower* than its layout frame — perspective pulls the receding
+    /// edge inward. Flattening it on hover gives that width back and then scales it up, and
+    /// `scaleEffect` does not participate in layout, so the extra pixels land outside the
+    /// frame. The enclosing `ScrollView` clips to its bounds, so without this padding the
+    /// hovered card is sliced down its leading edge — the exact thing that looks broken,
+    /// because it only happens to the card you are pointing at.
+    ///
+    /// Sized for the worst case: 4% of the widest card growing leftward from the trailing
+    /// anchor, and the hover shadow (radius 16, x-offset 6) reaching right.
+    static let hoverHeadroom: CGFloat = 16
+
     private var isHovered: Bool { model.hovered == window.id }
 
     private var height: CGFloat {
@@ -64,10 +77,15 @@ struct WindowCardView: View {
             if showTitle { caption }
         }
         .frame(width: width, alignment: .leading)
+        // Reserves the slack the hover state needs; see `hoverHeadroom`.
+        .padding(.horizontal, Self.hoverHeadroom)
         .contentShape(Rectangle())
         // Entrance: cards fly in from the screen edge, each a beat after the one above it,
         // so the strip assembles top-down instead of appearing all at once.
-        .offset(x: model.isOpen ? 0 : -70)
+        // Short, because the window itself now travels its whole width. This is the
+        // second-order motion on top of that — enough to read as a stagger, not enough to
+        // look like the cards are racing the panel they live in.
+        .offset(x: model.isOpen ? 0 : -26)
         .opacity(model.isOpen ? 1 : 0)
         .animation(
             .spring(response: 0.42, dampingFraction: 0.8)
