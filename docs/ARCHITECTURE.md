@@ -65,20 +65,42 @@ not bring the app forward, activating does not choose *which* of its windows lan
 several apps (Safari, Finder) re-order their windows as they come forward and would otherwise
 put a different one in front of you.
 
-## Spaces: the window comes to you
+## Spaces: what macOS will not let an app do
 
-macOS remembers which Space a window belonged to and sends it back there when it is
+macOS remembers which Space a window belonged to and sends you back there when it is
 un-minimized. For sider that is wrong outright: the panel follows you across Spaces
-(`.canJoinAllSpaces`), so you can be on desktop 3, click a card, and be yanked to desktop 1.
+(`.canJoinAllSpaces`), so you can be on desktop 3, click a card, and be thrown to desktop 1.
+The window you asked for should come to you.
 
-There is no public API for this. `SpacesBridge` uses the private SkyLight symbols
-(`CGSMainConnectionID`, `CGSGetActiveSpace`, `CGSMoveWindowsToManagedSpace`) through `dlsym`,
-so a future removal turns the feature off instead of stopping the binary from launching.
+**It cannot.** There is no public API, and as of macOS 26 the private ones do not work either.
+Measured on a Developer ID-signed build with Accessibility granted, against two windows that
+really were on other Spaces:
 
-The re-assignment happens **before** un-minimizing. A minimized window keeps its `CGWindowID`
-and its Space assignment, so moving it first means it simply comes back where you are; doing
-it afterwards makes macOS switch you to the old desktop and then switch back, which is the
-visible flick the whole thing exists to avoid.
+| Call | Result |
+|---|---|
+| `CGSMoveWindowsToManagedSpace` | returns cleanly, window stays put |
+| `CGSAddWindowsToSpaces` / `CGSRemoveWindowsFromSpaces` | same |
+| `CGSSetWindowTags` with the all-Spaces tag | `rc == 0`, no effect |
+
+The symbols are all still there — `dlsym` finds every one and they report success. The
+WindowServer accepts the write and ignores it. This is the same wall yabai hits, and why it
+needs SIP partially disabled for exactly this feature. Permissions are not the missing piece:
+the results are identical from an unprivileged process and from the signed app.
+
+Turning off *Desktop & Dock → "When switching to an application, switch to a Space with open
+windows for the application"* does not help either. It stops the Space switch, but the window
+still comes back on its own Space — so instead of being moved to the window, you get neither.
+Measured: un-minimizing without activating the app leaves the active Space alone and the
+window on its original one.
+
+So `SpacesBridge` **measures rather than assumes**. It still attempts the move (before
+un-minimizing, which is the right order if it ever works: a minimized window keeps its
+`CGWindowID` and Space assignment, and doing it afterwards would make macOS switch there and
+back). The first attempt on a window genuinely on another Space is checked a moment later,
+asynchronously so nothing waits on a diagnostic, and `availability` settles on `.working` or
+`.blocked`. Settings then stops offering a switch that cannot do anything — a checkbox that
+quietly lies is worse than an absent feature. If a future macOS reopens this, or the user runs
+with SIP off, it starts working on its own with nothing to change.
 
 ## Two drags
 

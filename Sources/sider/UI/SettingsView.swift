@@ -9,6 +9,7 @@ struct SettingsView: View {
     @ObservedObject var updater = UpdaterService.shared
     @ObservedObject var thumbnails = ThumbnailService.shared
     @ObservedObject var registry = WindowRegistry.shared
+    @ObservedObject var spaces = SpacesBridge.shared
 
     @State private var automaticUpdates = UpdaterService.shared.automaticChecks
 
@@ -58,10 +59,11 @@ struct SettingsView: View {
             Toggle("Open windows on the desktop you are on",
                    isOn: Binding(get: { prefs.openOnCurrentSpace },
                                  set: { prefs.openOnCurrentSpace = $0 }))
-                .disabled(!SpacesBridge.isAvailable)
-            if !SpacesBridge.isAvailable {
-                Text("Unavailable on this version of macOS — restored windows will reopen on the desktop they were minimized from.")
+                .disabled(!spaces.isUsable)
+            if !spaces.isUsable {
+                Text("Not possible on this Mac. macOS accepts the request to move a window to another desktop and then ignores it, and there is no supported way around that — a restored window opens on the desktop it was minimized from, and macOS takes you there.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Toggle("Toggle with ⌥⌘S",
                    isOn: Binding(get: { prefs.hotKeyEnabled },

@@ -207,7 +207,7 @@ final class WindowRegistry: ObservableObject {
             // are. Doing it afterwards makes macOS switch you to its old desktop first and
             // then switch back — the visible flick this exists to avoid.
             if moveToCurrentSpace, let id = window.windowID {
-                SpacesBridge.moveToActiveSpace(id)
+                SpacesBridge.shared.moveToActiveSpace(id)
             }
 
             AccessibilityBridge.setMinimized(window.element, false)
@@ -225,7 +225,7 @@ final class WindowRegistry: ObservableObject {
             self.scanQueue.asyncAfter(deadline: .now() + 0.12) {
                 // Again, because some apps re-assign their own Space as the window comes back.
                 if moveToCurrentSpace, let id = window.windowID {
-                    SpacesBridge.moveToActiveSpace(id)
+                    SpacesBridge.shared.moveToActiveSpace(id)
                 }
                 AccessibilityBridge.focus(window.element)
                 AccessibilityBridge.raise(window.element)

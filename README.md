@@ -27,8 +27,6 @@ macOS 13 or later. Universal (Apple Silicon + Intel).
   as a drop target, let go.
 - **Drag a card out** to take a window back and place it where you drop it, instead of where
   it happened to be before.
-- **It comes to you.** A restored window opens on the desktop (Space) you are on, not the one
-  it was minimized from — macOS's own behaviour would drag you across Spaces to fetch it.
 - **⌥⌘S** toggles the panel from anywhere.
 - **Scope.** Minimized windows only (the default), minimized plus apps hidden with ⌘H, or
   every window on the Mac.
@@ -49,6 +47,23 @@ its app icon instead of a preview, because sider never saw it. Un-minimize it on
 gets a real picture from then on.
 
 Nothing is ever written to disk. The cache lives in memory and dies with the process.
+
+## One thing sider cannot do
+
+**Bring a window to the desktop you are on.** If you minimized it on desktop 1 and click its
+card from desktop 3, macOS takes you to desktop 1.
+
+This is not an oversight. macOS 26 accepts every private call that asks to move a window to
+another Space and then ignores it — `CGSMoveWindowsToManagedSpace`, the
+`CGSAddWindowsToSpaces`/`CGSRemoveWindowsFromSpaces` pair, and the all-Spaces window tag all
+return success and change nothing, from an unprivileged process and from the signed app alike.
+It is the same restriction that makes yabai require SIP to be partially disabled for this one
+feature. Turning off *"When switching to an application, switch to a Space with open windows
+for the application"* does not help: it stops the jump, but the window still reappears on its
+own desktop, so you end up with neither.
+
+sider tests this at runtime rather than assuming, so the setting disappears from Settings on
+the Macs where it cannot work and comes back by itself if it ever can.
 
 ## Permissions
 

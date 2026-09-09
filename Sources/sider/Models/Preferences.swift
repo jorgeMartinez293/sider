@@ -151,10 +151,11 @@ final class Preferences: ObservableObject {
     /// Whether a restored window is pulled onto the desktop you are on, instead of macOS
     /// sending you to the one it was minimized from.
     ///
-    /// Depends on private Space APIs (see `SpacesBridge`). The toggle is disabled in Settings
-    /// when those are unavailable, rather than sitting there doing nothing.
+    /// Depends on private Space APIs that macOS 26 accepts and then ignores — see
+    /// `SpacesBridge`, which measures whether they actually work. The toggle is disabled in
+    /// Settings once they are known not to, rather than sitting there quietly lying.
     var openOnCurrentSpace: Bool {
-        get { defaults.bool(forKey: Key.openOnCurrentSpace) && SpacesBridge.isAvailable }
+        get { defaults.bool(forKey: Key.openOnCurrentSpace) && SpacesBridge.shared.isUsable }
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.openOnCurrentSpace) }
     }
 
