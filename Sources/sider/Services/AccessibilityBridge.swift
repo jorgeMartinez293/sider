@@ -121,6 +121,27 @@ enum AccessibilityBridge {
         return AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, value) == .success
     }
 
+    /// Whether the element still refers to a live window.
+    ///
+    /// An `AXUIElement` outlives the thing it points at: the reference stays valid Swift-side
+    /// and every call against it starts failing. Reading the cheapest attribute is the way to
+    /// ask, and the answer is what tells a close apart from a close that did nothing.
+    static func isAlive(_ element: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &value) == .success
+    }
+
+    /// Whether the window has a sheet attached — the "you have unsaved changes" kind.
+    ///
+    /// Found by role among the window's children rather than through an `AXSheets` attribute:
+    /// there is no such constant in the Swift SDK, and not every app exposes that attribute
+    /// anyway, while a sheet always shows up as a child with the sheet role.
+    static func hasSheet(_ window: AXUIElement) -> Bool {
+        elements(window, kAXChildrenAttribute).contains {
+            string($0, kAXRoleAttribute) == kAXSheetRole as String
+        }
+    }
+
     // MARK: - Classification
 
     /// Whether a window is one the user thinks of as a window — something they can put away

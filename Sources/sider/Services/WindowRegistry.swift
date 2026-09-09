@@ -308,15 +308,45 @@ final class WindowRegistry: ObservableObject {
     /// Closes the window by pressing its own close button, rather than sending the app ⌘W.
     /// Pressing the button is what the app itself hooks, so unsaved-changes sheets and
     /// "close means hide" behaviours keep working.
+    ///
+    /// Deliberately **without** un-minimizing first. The previous version did, on the
+    /// assumption that a window sitting in the Dock cannot have its button pressed. It can —
+    /// verified against a minimized window, which closed outright. The assumption cost the
+    /// actual behaviour: any press that did not take left the window sitting on screen,
+    /// un-minimized, so the × read as a button that un-minimizes windows.
     func close(_ window: ManagedWindow) {
         scanQueue.async {
-            // A minimized window's close button cannot be pressed while it is in the Dock,
-            // so bring it back first.
-            AccessibilityBridge.setMinimized(window.element, false)
-            if let button = AccessibilityBridge.copyAttribute(window.element, kAXCloseButtonAttribute) {
-                AXUIElementPerformAction((button as! AXUIElement), kAXPressAction as CFString)
+            guard let button = AccessibilityBridge.copyAttribute(window.element, kAXCloseButtonAttribute) else {
+                self.refresh()
+                return
             }
-            self.refresh()
+            AXUIElementPerformAction((button as! AXUIElement), kAXPressAction as CFString)
+
+            // Let the app either go away or put something up.
+            self.scanQueue.asyncAfter(deadline: .now() + 0.3) {
+                guard AccessibilityBridge.isAlive(window.element) else { self.refresh(); return }
+
+                // Still here, which means one of two things.
+                //
+                // Something is asking a question — an unsaved-changes sheet. macOS pulls the
+                // window out of the Dock by itself to show one (observed), so either the sheet
+                // is already visible in the children or the window has simply stopped being
+                // minimized; both mean the same thing. Then it has to be brought properly
+                // forward, because a sheet behind another app is a dialog nobody can answer.
+                let stillMinimized = AccessibilityBridge.bool(window.element, kAXMinimizedAttribute) ?? false
+                if AccessibilityBridge.hasSheet(window.element) || !stillMinimized {
+                    AccessibilityBridge.setMinimized(window.element, false)
+                    DispatchQueue.main.async {
+                        NSRunningApplication(processIdentifier: window.pid)?
+                            .activate(options: [.activateIgnoringOtherApps])
+                    }
+                    AccessibilityBridge.raise(window.element)
+                }
+                // Or the press simply did not take — some apps do not honour it — and the
+                // window is left exactly as it was, still in the Dock. Never half-restored,
+                // which is the whole point of this method not un-minimizing up front.
+                self.refresh()
+            }
         }
     }
 
