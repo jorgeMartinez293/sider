@@ -90,18 +90,25 @@ final class SiderPanelController {
 
     /// Panel frame for `screen`, in screen coordinates.
     ///
-    /// `visibleFrame`, not `frame`: it already excludes the menu bar and a pinned Dock, so a
-    /// Dock on the left pushes the panel clear of it instead of hiding behind it.
+    /// Horizontally `visibleFrame`, so a Dock pinned to the left pushes the panel clear of it
+    /// instead of hiding behind it. Vertically the whole display: the strip runs from the top
+    /// edge of the monitor to the bottom one, and `contentInsets(on:)` is what keeps the cards
+    /// at rest out from under the menu bar and the Dock.
     private func frame(on screen: NSScreen) -> NSRect {
-        let area = screen.visibleFrame
         // Card + the strip's 6pt container padding on each side + the per-card slack the
         // hover state needs on each side (`WindowCardView.hoverHeadroom`), plus a little
         // over so the hover shadow has somewhere to fall.
         let width = CGFloat(prefs.cardWidth) + 12 + WindowCardView.hoverHeadroom * 2 + 8
-        return NSRect(x: area.minX + 8,
-                      y: area.minY + 12,
+        return NSRect(x: screen.visibleFrame.minX + 8,
+                      y: screen.frame.minY,
                       width: width,
-                      height: area.height - 24)
+                      height: screen.frame.height)
+    }
+
+    /// How much of the top and bottom of a full-height panel the menu bar and Dock cover.
+    private func contentInsets(on screen: NSScreen) -> (top: CGFloat, bottom: CGFloat) {
+        (top: screen.frame.maxY - screen.visibleFrame.maxY,
+         bottom: screen.visibleFrame.minY - screen.frame.minY)
     }
 
     // MARK: - Show / hide
@@ -131,6 +138,9 @@ final class SiderPanelController {
         guard force || prefs.openWhenEmpty || hasSomethingToShow else { return }
 
         let target = frame(on: screen)
+        let insets = contentInsets(on: screen)
+        if model.topInset != insets.top { model.topInset = insets.top }
+        if model.bottomInset != insets.bottom { model.bottomInset = insets.bottom }
 
         if isVisible {
             // Already up, but the pointer moved to a different display: glide across rather
@@ -171,6 +181,7 @@ final class SiderPanelController {
 
         model.isOpen = false
         model.hovered = nil
+        model.selected = nil
 
         let gone = offscreenFrame(for: panel.frame)
 
@@ -234,9 +245,69 @@ final class SiderPanelController {
         // user is looking at. Resolved here rather than inside the registry because the move
         // runs off the main thread by then, and `NSScreen` is not something to hand across.
         let area = screenUnderPointer().visibleFrame
-        registry.restore(window, placement: prefs.centerOnOpen ? .centered(in: area) : .unchanged)
+        // Only a window coming back from the Dock is centred. One that is already on screen
+        // is where the user left it, and raising it should not also move it.
+        let centers = prefs.centerOnOpen && window.isMinimized
+        registry.restore(window, placement: centers ? .centered(in: area) : .unchanged)
         hide()
         onDismissAfterAction?()
+    }
+
+    // MARK: - Four-finger gesture
+
+    /// True from the moment the gesture opens the panel until it ends. The hover monitor
+    /// consults this for the same reason as `isDraggingCard`: the pointer is nowhere near the
+    /// panel, and "away from the panel" would otherwise close it under the user's fingers.
+    private(set) var isGestureActive = false
+
+    /// Whether the gesture is what brought the panel up. If it was already open (the pointer
+    /// is on the edge, say), letting go with nothing chosen must leave it as it was found.
+    private var openedByGesture = false
+
+    /// The cards top to bottom, exactly as the strip draws them.
+    private var visualOrder: [ManagedWindow] {
+        let windows = registry.windows
+        guard prefs.centeredStack else { return windows }
+        return CenteredStackLayout.order(count: windows.count).map { windows[$0] }
+    }
+
+    var gestureItemCount: Int { registry.windows.count }
+
+    /// Where the highlight lands first: the most recently put-away window, wherever the
+    /// layout has put it — the middle of a centred strip, the top of a plain one.
+    var gestureStartIndex: Int {
+        guard prefs.centeredStack else { return 0 }
+        return CenteredStackLayout.order(count: registry.windows.count).firstIndex(of: 0) ?? 0
+    }
+
+    func gestureBegan() {
+        isGestureActive = true
+        openedByGesture = !isVisible
+        show(on: screenUnderPointer())
+    }
+
+    func gestureSelected(_ index: Int?) {
+        let order = visualOrder
+        model.selected = index.flatMap { order.indices.contains($0) ? order[$0].id : nil }
+    }
+
+    /// Fingers lifted: bring back the highlighted window, or, with nothing highlighted, just
+    /// let the panel go again.
+    func gestureEnded() {
+        defer { isGestureActive = false }
+        // `model.selected` is cleared by `hide()`, so an Escape pressed mid-gesture counts as
+        // the cancel it was meant as, even though the fingers are still moving.
+        if let id = model.selected, let window = registry.windows.first(where: { $0.id == id }) {
+            restore(window)
+        } else if openedByGesture {
+            hide()
+        }
+    }
+
+    func gestureCancelled() {
+        isGestureActive = false
+        model.selected = nil
+        if openedByGesture { hide() }
     }
 
     // MARK: - Dragging a card out

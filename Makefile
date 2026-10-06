@@ -5,7 +5,11 @@ APP_NAME = sider
 # Universal (arm64 + x86_64) products land here instead of .build/release.
 # One binary runs on Apple Silicon and Intel, so the download is a single DMG and
 # nothing ever has to detect the visitor's architecture.
-BUILD_DIR = .build/apple/Products/Release
+#
+# Asked of SwiftPM rather than hard-coded: newer toolchains build with a different build
+# system and put the products under .build/out instead of .build/apple, and a stale path
+# here does not fail — `package` happily wraps whatever old binary is left there.
+BUILD_DIR := $(shell swift build -c release --arch arm64 --arch x86_64 --show-bin-path 2>/dev/null)
 APP_BUNDLE = $(APP_NAME).app
 EXECUTABLE = $(APP_NAME)
 PLIST = Info.plist
@@ -168,11 +172,12 @@ dmg:
 # NOTE: notarization does NOT grant Accessibility or Screen Recording. Those are TCC
 # permissions the user always approves by hand — notarized or not.
 #
-# NOTARY_PROFILE names a Keychain item created ONCE with:
-#   xcrun notarytool store-credentials sider-notary \
+# NOTARY_PROFILE names a Keychain item created ONCE (shared with the sibling apps — the
+# credential belongs to the Apple ID / team, not to one app) with:
+#   xcrun notarytool store-credentials vaho-notary \
 #     --apple-id <apple-id> --team-id <team-id>
 # The app-specific password lives in the Keychain. Never put a credential in this file.
-NOTARY_PROFILE ?= sider-notary
+NOTARY_PROFILE ?= vaho-notary
 NOTARIZE_ZIP = .notarize-upload.zip
 
 # Guard: refuse to "notarize" something signed with an identity Apple will reject, instead of

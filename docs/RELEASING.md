@@ -40,7 +40,7 @@ security find-identity -v -p codesigning
 ### 3. notarytool profile
 
 ```bash
-xcrun notarytool store-credentials sider-notary --apple-id <apple-id> --team-id <team-id>
+xcrun notarytool store-credentials vaho-notary --apple-id <apple-id> --team-id <team-id>
 ```
 
 Uses an app-specific password, stored in the Keychain. Never in a file in this repo.

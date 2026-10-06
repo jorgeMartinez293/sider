@@ -29,6 +29,14 @@ macOS 13 or later. Universal (Apple Silicon + Intel).
   as a drop target, let go.
 - **Drag a card out** to take a window back and place it where you drop it, instead of where
   it happened to be before.
+- **Four fingers on the trackpad** open the panel. Without lifting them, slide up or down to
+  walk through the cards; lift, and the highlighted window comes back. Lifting without
+  sliding just closes the panel again. Reads the trackpad through the private
+  `MultitouchSupport` framework. macOS answers four-finger vertical swipes too (Mission
+  Control, App Exposé) even when those are set to three fingers, so while sider's fingers are
+  down an event tap drops that swipe before the Dock sees it; three-finger swipes are left
+  alone.
+- **A five-finger tap** minimizes the window in front.
 - **⌥⌘S** toggles the panel from anywhere.
 - **Scope.** Minimized windows only (the default), minimized plus apps hidden with ⌘H, or
   every window on the Mac.
@@ -111,9 +119,14 @@ Sources/sider/
   main.swift                 process entry, single-instance guard, activation policy
   AppDelegate.swift          wires the services together
   Models/
+    FourFingerGesture.swift  the four-finger peek-and-pick state machine (pure, tested)
+    FiveFingerTap.swift      the five-finger tap recogniser (pure, tested)
     ManagedWindow.swift      a window, joined from its AX element and its CGWindowID
     Preferences.swift        every setting, persisted and observable
   Services/
+    MultitouchBridge.swift     raw trackpad fingers (private MultitouchSupport, looked up at runtime)
+    FourFingerSwitcher.swift   trackpad frames → the four-finger gesture's events
+    SystemSwipeBlocker.swift   keeps Mission Control / App Exposé off sider's four fingers
     AccessibilityBridge.swift  typed AX layer, incl. the AXUIElement → CGWindowID join
     SpacesBridge.swift         pulls a window onto the desktop you are on (private CGS API)
     WindowRegistry.swift       the live window list: AX observers + a safety poll

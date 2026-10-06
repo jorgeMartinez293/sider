@@ -20,7 +20,6 @@ struct SiderPanelView: View {
             if model.isDropTarget { dropTargetOverlay }
 
             content
-                .padding(.vertical, 12)
                 // Small, because each card carries its own horizontal slack for the hover
                 // state (`WindowCardView.hoverHeadroom`). Padding the container instead
                 // would put the gap *outside* the ScrollView's clip, where it does the
@@ -110,33 +109,49 @@ struct SiderPanelView: View {
 
     private var strip: some View {
         GeometryReader { geo in
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    ForEach(laidOut, id: \.window.id) { entry in
-                        WindowCardView(
-                            window: entry.window,
-                            // The *recency* index, not the position in the layout, so the
-                            // entrance staggers outward from the newest card rather than
-                            // top-down across a stack whose middle arrived first.
-                            index: entry.index,
-                            width: cardWidth,
-                            showTitle: prefs.showTitles,
-                            model: model,
-                            onRestore: { onRestore(entry.window) },
-                            onMinimize: { registry.minimize(entry.window) },
-                            onDragChanged: { onDragChanged(entry.window, $0) },
-                            onDragEnded: { onDragEnded(entry.window, $0) }
-                        )
+            ScrollViewReader { scroll in
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        ForEach(laidOut, id: \.window.id) { entry in
+                            WindowCardView(
+                                window: entry.window,
+                                // The *recency* index, not the position in the layout, so the
+                                // entrance staggers outward from the newest card rather than
+                                // top-down across a stack whose middle arrived first.
+                                index: entry.index,
+                                width: cardWidth,
+                                showTitle: prefs.showTitles,
+                                model: model,
+                                onRestore: { onRestore(entry.window) },
+                                onMinimize: { registry.minimize(entry.window) },
+                                onDragChanged: { onDragChanged(entry.window, $0) },
+                                onDragEnded: { onDragEnded(entry.window, $0) }
+                            )
+                        }
                     }
+                    .padding(.vertical, 2)
+                    // Centred vertically when it fits, scrolling normally when it does not.
+                    // `minHeight` rather than `height`: forcing the height would stop a long
+                    // stack from growing past the screen and quietly clip the ends off it.
+                    .frame(minHeight: prefs.centeredStack ? max(0, geo.size.height - restingInsets) : 0,
+                           alignment: .center)
+                    // Inside the ScrollView, not around it: the panel is as tall as the
+                    // display, so the stack rests clear of the menu bar and the Dock but
+                    // scrolls under them to the very edge of the screen.
+                    .padding(.top, model.topInset + 12)
+                    .padding(.bottom, model.bottomInset + 12)
                 }
-                .padding(.vertical, 2)
-                // Centred vertically when it fits, scrolling normally when it does not.
-                // `minHeight` rather than `height`: forcing the height would stop a long
-                // stack from growing past the screen and quietly clip the ends off it.
-                .frame(minHeight: prefs.centeredStack ? geo.size.height : 0, alignment: .center)
+                // A strip taller than the screen scrolls, and the four-finger gesture can walk
+                // the highlight off the end of what is showing.
+                .onChange(of: model.selected) { id in
+                    guard let id else { return }
+                    withAnimation(.easeOut(duration: 0.18)) { scroll.scrollTo(id) }
+                }
             }
         }
     }
+
+    private var restingInsets: CGFloat { model.topInset + model.bottomInset + 24 }
 
     /// The cards in the order they are drawn, top to bottom, each paired with its recency
     /// index (0 = most recently put away).
@@ -178,6 +193,8 @@ struct SiderPanelView: View {
         // A notice is words, not a picture, so it needs a surface of its own — with the
         // backdrop off it would otherwise be small grey text lying on the wallpaper.
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.top, model.topInset + 12)
+        .padding(.bottom, model.bottomInset + 12)
         .frame(maxHeight: .infinity, alignment: prefs.centeredStack ? .center : .top)
         .opacity(model.isOpen ? 1 : 0)
         .offset(x: model.isOpen ? 0 : -40)

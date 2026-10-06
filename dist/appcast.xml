@@ -3,6 +3,17 @@
     <channel>
         <title>sider</title>
         <item>
+            <title>1.1</title>
+            <pubDate>Tue, 06 Oct 2026 17:10:05 +0200</pubDate>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/jorgeMartinez293/sider-releases/releases/latest/download/sider-1.1.zip" length="3468108" type="application/octet-stream" sparkle:edSignature="Kxw07bPwMIM0trn9GqUJb9xKUuzfeor3uU6eYHlqR6IOYHozL88DCCgXfJeX+xIZTQP2qYrNZiq4FGFj3UFfCw=="/>
+            <sparkle:deltas>
+                <enclosure url="https://github.com/jorgeMartinez293/sider-releases/releases/latest/download/sider3-2.delta" sparkle:deltaFrom="2" length="286842" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="ec4P5t4AVR+lDKq5Hd5Iq+6O5/ptMAeJ5SecBTMs+Ij098qOWIzolI1lpfpAsNqNGp9phZzzbrw2/F4LE5ZYDA=="/>
+            </sparkle:deltas>
+        </item>
+        <item>
             <title>1.0</title>
             <pubDate>Wed, 09 Sep 2026 21:01:54 +0200</pubDate>
             <sparkle:version>2</sparkle:version>

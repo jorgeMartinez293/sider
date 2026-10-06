@@ -63,8 +63,8 @@ if [ "${NOTARIZE:-1}" = "1" ]; then
   security find-identity -v -p codesigning 2>/dev/null | grep -v CSSMERR_TP_CERT_REVOKED \
     | grep -q "Developer ID Application" || {
       echo "ERROR: no valid Developer ID Application identity — cannot notarize." >&2; exit 1; }
-  xcrun notarytool history --keychain-profile "${NOTARY_PROFILE:-sider-notary}" >/dev/null 2>&1 || {
-    echo "ERROR: notarytool profile '${NOTARY_PROFILE:-sider-notary}' missing or invalid." >&2
+  xcrun notarytool history --keychain-profile "${NOTARY_PROFILE:-vaho-notary}" >/dev/null 2>&1 || {
+    echo "ERROR: notarytool profile '${NOTARY_PROFILE:-vaho-notary}' missing or invalid." >&2
     echo "       Create it with: xcrun notarytool store-credentials" >&2; exit 1; }
 fi
 

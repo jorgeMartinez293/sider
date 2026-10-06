@@ -53,7 +53,7 @@ struct SettingsView: View {
 
             Divider().padding(.vertical, 4)
 
-            Toggle("Centre windows on screen when you open them",
+            Toggle("Centre minimized windows on screen when you open them",
                    isOn: Binding(get: { prefs.centerOnOpen },
                                  set: { prefs.centerOnOpen = $0 }))
             Toggle("Drag a window to the left edge to put it away",
@@ -68,6 +68,17 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            Toggle("Four fingers on the trackpad to switch windows",
+                   isOn: Binding(get: { prefs.fourFingerSwitch },
+                                 set: { prefs.fourFingerSwitch = $0 }))
+            if prefs.fourFingerSwitch {
+                Text("Put four fingers down to open the panel, slide up or down to move between windows, and lift to bring back the one you stopped on. While they are down, sider keeps Mission Control and App Exposé from answering the same swipe — with three fingers those work as always.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Toggle("Tap with five fingers to put the front window away",
+                   isOn: Binding(get: { prefs.fiveFingerMinimize },
+                                 set: { prefs.fiveFingerMinimize = $0 }))
             Toggle("Toggle with ⌥⌘S",
                    isOn: Binding(get: { prefs.hotKeyEnabled },
                                  set: { prefs.hotKeyEnabled = $0; HotKeyManager.shared.apply(enabled: $0) }))

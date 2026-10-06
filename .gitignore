@@ -13,3 +13,8 @@ rw.*.dmg
 
 # Build product. What ships is the zip/dmg in dist/, not this bundle.
 /sider.app
+
+# Release leftovers: the dmg is moved into dist/ at the end of release.sh, and the notarization
+# upload zip is deleted after submission — either only survives an aborted run.
+/sider.dmg
+.notarize-upload.zip

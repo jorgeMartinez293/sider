@@ -59,7 +59,7 @@ struct WindowCardView: View {
         hypot(translation.width, translation.height) > Self.dragThreshold
     }
 
-    private var isHovered: Bool { model.hovered == window.id }
+    private var isHovered: Bool { model.hovered == window.id || model.selected == window.id }
     private var isDragging: Bool { model.dragging == window.id }
 
     /// 28% of the card's width, held to a sane range for very small and very large cards.
@@ -178,10 +178,11 @@ struct WindowCardView: View {
 
     private var preview: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.ultraThinMaterial)
-
             if let image = thumbnails.image(for: window.windowID) {
+                // Nothing under a real capture — no material, no plate. A translucent
+                // window's picture carries its alpha, and anything drawn behind it here
+                // (the material frosted it, a solid plate made it opaque) stops it looking
+                // like the see-through window it is.
                 Image(nsImage: image)
                     .resizable()
                     // Explicit, because the default is not guaranteed and this image is
@@ -196,6 +197,9 @@ struct WindowCardView: View {
                     .frame(width: width, height: height)
                     .clipped()
             } else {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(.ultraThinMaterial)
+
                 fallbackArt
             }
         }

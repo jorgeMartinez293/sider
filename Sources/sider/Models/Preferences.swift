@@ -73,6 +73,8 @@ final class Preferences: ObservableObject {
         static let showPanelBackground = "showPanelBackground"
         static let openWhenEmpty = "openWhenEmpty"
         static let centerOnOpen = "centerOnOpen"
+        static let fourFingerSwitch = "fourFingerSwitch"
+        static let fiveFingerMinimize = "fiveFingerMinimize"
     }
 
     private let defaults = UserDefaults.standard
@@ -101,6 +103,8 @@ final class Preferences: ObservableObject {
             Key.showPanelBackground: false,
             Key.openWhenEmpty: false,
             Key.centerOnOpen: true,
+            Key.fourFingerSwitch: true,
+            Key.fiveFingerMinimize: true,
             Key.hasCompletedWelcome: false,
         ])
     }
@@ -195,7 +199,8 @@ final class Preferences: ObservableObject {
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.openWhenEmpty) }
     }
 
-    /// Whether clicking a card puts the window in the middle of the screen you are on.
+    /// Whether clicking a minimized window's card puts it in the middle of the screen you are
+    /// on. A window that is already open is only raised, never moved.
     ///
     /// On by default. A window that was minimized from the far corner of another display, or
     /// left half off-screen, comes back somewhere you have to go looking for it — which is
@@ -204,6 +209,21 @@ final class Preferences: ObservableObject {
     var centerOnOpen: Bool {
         get { defaults.bool(forKey: Key.centerOnOpen) }
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.centerOnOpen) }
+    }
+
+    /// Whether four fingers on the trackpad open the panel and sliding them picks a window.
+    ///
+    /// Reads the trackpad through a private framework (see `MultitouchBridge`), and clashes
+    /// with the system's own four-finger gestures, so it can be turned off.
+    var fourFingerSwitch: Bool {
+        get { defaults.bool(forKey: Key.fourFingerSwitch) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.fourFingerSwitch) }
+    }
+
+    /// Whether tapping the trackpad with five fingers minimizes the window in front.
+    var fiveFingerMinimize: Bool {
+        get { defaults.bool(forKey: Key.fiveFingerMinimize) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.fiveFingerMinimize) }
     }
 
     var launchAtLogin: Bool {

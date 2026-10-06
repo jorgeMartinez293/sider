@@ -225,6 +225,13 @@ final class WindowRegistry: ObservableObject {
 
             self.place(window.element, placement)
 
+            // Activation has to wait until the window has really left the Dock. The
+            // un-minimize animation takes a few hundred milliseconds, and an app that is
+            // activated while all of its windows still count as minimized takes that as "no
+            // visible windows" and handles a reopen — which un-minimizes *every* window it
+            // has, not just the one the user picked.
+            Self.waitUntilRestored(window.element)
+
             DispatchQueue.main.async {
                 NSRunningApplication(processIdentifier: window.pid)?
                     .activate(options: [.activateIgnoringOtherApps])
@@ -240,6 +247,16 @@ final class WindowRegistry: ObservableObject {
                 AccessibilityBridge.raise(window.element)
                 self.refresh()
             }
+        }
+    }
+
+    /// Blocks the calling (scan) queue until `element` reports itself as no longer minimized,
+    /// or a second has passed — an app that never updates the attribute must not hang a restore.
+    private static func waitUntilRestored(_ element: AXUIElement) {
+        let deadline = Date().addingTimeInterval(1.0)
+        while Date() < deadline {
+            if AccessibilityBridge.bool(element, kAXMinimizedAttribute) != true { return }
+            Thread.sleep(forTimeInterval: 0.02)
         }
     }
 
@@ -301,6 +318,27 @@ final class WindowRegistry: ObservableObject {
     func minimizeElement(_ element: AXUIElement) {
         scanQueue.async {
             AccessibilityBridge.setMinimized(element, true)
+            self.refresh()
+        }
+    }
+
+    /// Minimizes whichever window has the keyboard — the five-finger tap.
+    ///
+    /// Asked of the frontmost app rather than taken from the registry: in the default scope
+    /// the registry only knows windows that are *already* minimized.
+    func minimizeFocusedWindow() {
+        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              pid != ProcessInfo.processInfo.processIdentifier
+        else { return }
+        scanQueue.async {
+            let app = AccessibilityBridge.application(pid: pid)
+            guard let focused = AccessibilityBridge.copyAttribute(app, kAXFocusedWindowAttribute),
+                  CFGetTypeID(focused) == AXUIElementGetTypeID()
+            else { return }
+            let window = focused as! AXUIElement
+            // A sheet or a palette cannot go to the Dock; asking would fail silently.
+            guard AccessibilityBridge.isMinimizableWindow(window) else { return }
+            AccessibilityBridge.setMinimized(window, true)
             self.refresh()
         }
     }

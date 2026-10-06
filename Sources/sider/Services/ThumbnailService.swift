@@ -186,15 +186,19 @@ final class ThumbnailService: ObservableObject {
     @available(macOS 14.0, *)
     private func captureWithScreenCaptureKit(_ ids: [CGWindowID]) async {
         let wanted = Set(ids)
+        // Desktop windows included: the wallpaper is one of them, and it is what goes
+        // behind a translucent window below.
         guard let content = try? await SCShareableContent.excludingDesktopWindows(
-            true, onScreenWindowsOnly: true) else { return }
+            false, onScreenWindowsOnly: true) else { return }
+
+        // The wallpaper and anything else drawn at or below the desktop level. Desktop
+        // icons and widgets sit above that level and are left out.
+        let desktopLevel = Int(CGWindowLevelForKey(.desktopWindow))
+        let backdrop = content.windows.filter { $0.windowLayer <= desktopLevel }
 
         let scale = Self.displayScale
         for window in content.windows where wanted.contains(window.windowID) {
-            let pixels = capturePixelSize(for: window.frame.size, scale: scale)
             let config = SCStreamConfiguration()
-            config.width = pixels.width
-            config.height = pixels.height
             config.showsCursor = false
             config.scalesToFit = true
             // Ask for the real thing rather than whatever is cheapest. `.automatic` is free
@@ -205,8 +209,30 @@ final class ThumbnailService: ObservableObject {
             // frame. Captured, it eats pixels out of the budget and leaves a dirty edge once
             // the card crops to fill.
             config.ignoreShadowsSingleWindow = true
+            config.ignoreShadowsDisplay = true
 
-            let filter = SCContentFilter(desktopIndependentWindow: window)
+            // A window captured on its own has nothing behind it, so a translucent one
+            // comes back with bare alpha and none of the blur the WindowServer draws from
+            // what is underneath. Capturing the window's rectangle of the display, with
+            // only the window and the wallpaper in it, gives the picture a real background
+            // without dragging in whatever other windows happen to overlap.
+            //
+            // Only when the window is wholly on one display: `sourceRect` cannot reach past
+            // the display's edge, so a window hanging off it would lose that part. Those
+            // fall back to the independent capture, which always has the whole window.
+            let filter: SCContentFilter
+            if let display = content.displays.first(where: { $0.frame.contains(window.frame) }) {
+                filter = SCContentFilter(display: display, including: backdrop + [window])
+                config.sourceRect = window.frame.offsetBy(dx: -display.frame.minX,
+                                                          dy: -display.frame.minY)
+            } else {
+                filter = SCContentFilter(desktopIndependentWindow: window)
+            }
+
+            let pixels = capturePixelSize(for: window.frame.size, scale: scale)
+            config.width = pixels.width
+            config.height = pixels.height
+
             guard let cgImage = try? await SCScreenshotManager.captureImage(
                 contentFilter: filter, configuration: config) else { continue }
             store(cgImage, for: window.windowID, scale: scale)

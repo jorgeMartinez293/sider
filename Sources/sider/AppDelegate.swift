@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController!
     private var panel: SiderPanelController!
     private let hover = EdgeHoverMonitor()
+    private let fourFingers = FourFingerSwitcher()
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -29,7 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // While a card is being dragged out, the pointer is deliberately far from the panel —
         // which every other rule here reads as "leave". Holding it open is what lets the
         // gesture finish.
-        hover.holdOpen = { [weak self] in self?.panel.isDraggingCard ?? false }
+        hover.holdOpen = { [weak self] in
+            guard let panel = self?.panel else { return false }
+            return panel.isDraggingCard || panel.isGestureActive
+        }
         hover.onPointerEnteredPanel = { [weak self] in self?.panel.focusForInteraction() }
 
         // Dragging a window against the left edge puts it away.
@@ -41,6 +45,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hover.start()
 
+        // Four fingers on the trackpad open the panel; sliding them up or down walks the
+        // cards; lifting brings back the one you stopped on.
+        fourFingers.itemCount = { [weak self] in self?.panel.gestureItemCount ?? 0 }
+        fourFingers.startIndex = { [weak self] in self?.panel.gestureStartIndex ?? 0 }
+        fourFingers.onBegan = { [weak self] in self?.panel.gestureBegan() }
+        fourFingers.onSelected = { [weak self] in self?.panel.gestureSelected($0) }
+        fourFingers.onEnded = { [weak self] _ in self?.panel.gestureEnded() }
+        fourFingers.onCancelled = { [weak self] in self?.panel.gestureCancelled() }
+        // A tap with the whole hand puts away the window in front — ⌘M without the keyboard.
+        fourFingers.onFiveFingerTap = { WindowRegistry.shared.minimizeFocusedWindow() }
+        applyTrackpadGestures()
+
         WindowRegistry.shared.start()
         ThumbnailService.shared.start()
         HotKeyManager.shared.onTrigger = { [weak self] in self?.panel.toggle() }
@@ -50,7 +66,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // and the window geometry — recompute rather than wait for the next poll.
         Preferences.shared.objectWillChange
             .receive(on: RunLoop.main)
-            .sink { WindowRegistry.shared.refresh() }
+            .sink { [weak self] in
+                WindowRegistry.shared.refresh()
+                self?.applyTrackpadGestures()
+            }
             .store(in: &cancellables)
 
         // Thumbnails for windows that no longer exist are dead weight. Pruning against the
@@ -70,8 +89,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func applyTrackpadGestures() {
+        fourFingers.apply(switching: Preferences.shared.fourFingerSwitch,
+                          tapping: Preferences.shared.fiveFingerMinimize)
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         hover.stop()
+        fourFingers.apply(switching: false, tapping: false)
         HotKeyManager.shared.unregister()
     }
 
