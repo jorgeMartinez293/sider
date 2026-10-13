@@ -28,6 +28,14 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(Preferences.shared.scope, .minimizedOnly)
         UserDefaults.standard.removeObject(forKey: "panelScope")
     }
+
+    /// Same for the style: a value this build does not know draws the original cards.
+    func testUnknownStyleFallsBack() {
+        let original = UserDefaults.standard.string(forKey: "panelStyle")
+        defer { UserDefaults.standard.set(original, forKey: "panelStyle") }
+        UserDefaults.standard.set("nonsense", forKey: "panelStyle")
+        XCTAssertEqual(Preferences.shared.style, .floating)
+    }
 }
 
 final class ManagedWindowTests: XCTestCase {

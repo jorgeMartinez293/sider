@@ -23,6 +23,7 @@ struct WindowCardView: View {
     let index: Int
     let width: CGFloat
     let showTitle: Bool
+    let style: PanelStyle
 
     @ObservedObject private var thumbnails = ThumbnailService.shared
     @ObservedObject var model: PanelModel
@@ -61,6 +62,8 @@ struct WindowCardView: View {
 
     private var isHovered: Bool { model.hovered == window.id || model.selected == window.id }
     private var isDragging: Bool { model.dragging == window.id }
+    /// Flat on black (sidebar and notch) rather than tilted on the desktop.
+    private var isFlat: Bool { style.isSolid }
 
     /// 28% of the card's width, held to a sane range for very small and very large cards.
     private var badgeSize: CGFloat { (width * 0.28).clamped(38, 72) }
@@ -97,18 +100,21 @@ struct WindowCardView: View {
                     // Sign sets which way the card leans; this one leans it to the right.
                     // The leading anchor pins the left edge, so flattening on hover widens
                     // the card to the right instead of trimming it on the left.
-                    .degrees(isHovered ? 0 : restingTilt),
+                    // The solid styles keep their previews flat and say "this one" with
+                    // `selectionFrame` instead.
+                    .degrees(isHovered || isFlat ? 0 : restingTilt),
                     axis: (x: 0, y: 1, z: 0),
                     anchor: .leading,
                     // Shallow. A stronger perspective (larger value) exaggerates the near
                     // edge until the card looks like it is falling out of the screen.
                     perspective: 0.4
                 )
-                .scaleEffect(isHovered ? 1.04 : 1.0, anchor: .leading)
+                .scaleEffect(isHovered && !isFlat ? 1.04 : 1.0, anchor: .leading)
                 // Constant: the card's depth cue does not change on hover. Growing the
                 // shadow as well made the hover read as two separate effects.
-                .shadow(color: .black.opacity(0.22), radius: 9, x: 3, y: 5)
+                .shadow(color: .black.opacity(isFlat ? 0 : 0.22), radius: 9, x: 3, y: 5)
                 .animation(.spring(response: 0.34, dampingFraction: 0.72), value: isHovered)
+                .overlay { if isFlat { selectionFrame } }
                 // The badge is attached OUTSIDE the transform stack on purpose. Inside it,
                 // the badge inherited the tilt, the perspective and the hover scale, so the
                 // icon swelled and sheared along with the picture — hover read as "the app
@@ -128,12 +134,16 @@ struct WindowCardView: View {
         // second-order motion on top of that — enough to read as a stagger, not enough to
         // look like the cards are racing the panel they live in.
         .offset(x: model.isOpen ? 0 : -26)
-        .opacity(model.isOpen ? 1 : 0)
+        // The fade belongs to the floating cards, which materialise out of the desktop. On a
+        // solid surface the cards are opaque from the first frame, like the bar itself.
+        .opacity(model.isOpen || isFlat ? 1 : 0)
         .animation(
             .spring(response: 0.42, dampingFraction: 0.8)
                 // Only the entrance is staggered. On the way out everything leaves together —
                 // a staggered exit reads as the panel struggling to close.
-                .delay(model.isOpen ? Double(index) * 0.035 : 0),
+                // Nor on a solid surface at all: there the cards are fixtures of the bar, and
+                // arriving one by one makes the bar look like it is still loading.
+                .delay(model.isOpen && !isFlat ? Double(index) * 0.035 : 0),
             value: model.isOpen
         )
         // Dimmed while the DragProxyWindow carries its picture under the pointer, so the
@@ -209,6 +219,19 @@ struct WindowCardView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(.white.opacity(isHovered ? 0.35 : 0.14), lineWidth: 1)
         )
+    }
+
+    /// The solid styles' answer to "which one": a bright frame just outside the preview,
+    /// glowing a little so it reads as lit rather than outlined.
+    private var selectionFrame: some View {
+        RoundedRectangle(cornerRadius: 13, style: .continuous)
+            .stroke(.white, lineWidth: 3)
+            .shadow(color: .white.opacity(0.75), radius: 6)
+            // Outside the picture, with a hairline of black between the two.
+            .padding(-4)
+            .opacity(isHovered ? 1 : 0)
+            .animation(.easeOut(duration: 0.14), value: isHovered)
+            .allowsHitTesting(false)
     }
 
     /// App icon badge, so a window is identifiable at a glance even when its picture is a

@@ -93,6 +93,17 @@ struct SettingsView: View {
     private var feel: some View {
         Form {
             Section {
+                Picker("Style", selection: Binding(get: { prefs.style }, set: { prefs.style = $0 })) {
+                    ForEach(PanelStyle.allCases) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+            } footer: {
+                Text(prefs.style.detail)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
                 slider("Preview size", value: Binding(get: { prefs.cardWidth },
                                                        set: { prefs.cardWidth = $0 }),
                        range: 120...340, unit: "pt")
@@ -110,6 +121,8 @@ struct SettingsView: View {
                 Toggle("Show a panel behind the previews",
                        isOn: Binding(get: { prefs.showPanelBackground },
                                      set: { prefs.showPanelBackground = $0 }))
+                    // The sidebar and the notch are their own background.
+                    .disabled(prefs.style.isSolid)
             } footer: {
                 Text("Stacked from the middle, the window you just put away sits at the centre of the screen and the others spread out above and below it, so the newest one is always in the same place. Off, they list from the top.\n\nWithout the panel behind them the previews float straight on your desktop.")
                     .font(.caption).foregroundStyle(.secondary)

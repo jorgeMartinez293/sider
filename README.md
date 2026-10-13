@@ -21,6 +21,11 @@ macOS 13 or later. Universal (Apple Silicon + Intel).
   available in Settings for anyone who wants the edge drawn in.
 - **Real previews.** Each card is a picture of that window, tilted in 3D and flattening under
   the pointer. Cards fly in staggered from the edge and leave together.
+- **Or a sidebar.** A second style in Settings → Feel: an opaque black bar the height of the
+  screen with the previews flat inside it, a bright frame around the selected one, and
+  trailing corners that flare outward into the top and bottom of the display.
+- **Or a notch.** The same black surface cut down to the height of the windows in it, growing
+  sideways out of the middle of the screen edge.
 - **One click back.** Clicking a card un-minimizes the window, activates its app and raises
   that specific window — all three, in that order, or you end up somewhere you did not ask for.
   The window lands in the middle of the screen you are on, rather than wherever it happened to

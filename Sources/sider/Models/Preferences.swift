@@ -47,6 +47,40 @@ enum PanelScreen: String, CaseIterable, Identifiable {
     }
 }
 
+/// How the panel draws the windows it holds.
+enum PanelStyle: String, CaseIterable, Identifiable {
+    /// Tilted cards floating straight on the desktop, Stage Manager style. The default.
+    case floating
+    /// An opaque black bar against the screen edge with the previews flat inside it, and a
+    /// bright frame around the one that is selected.
+    case sidebar
+    /// The sidebar's black surface and flat previews, but only as tall as the windows it
+    /// holds: a notch growing sideways out of the middle of the screen edge.
+    case notch
+
+    var id: String { rawValue }
+
+    /// Whether the style draws its own opaque black surface with flat previews on it, as
+    /// opposed to cards floating on the desktop.
+    var isSolid: Bool { self != .floating }
+
+    var title: String {
+        switch self {
+        case .floating: return "Floating cards"
+        case .sidebar:  return "Sidebar"
+        case .notch:    return "Notch"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .floating: return "Tilted previews floating over your desktop."
+        case .sidebar:  return "Flat previews in a black bar that runs the height of the screen."
+        case .notch:    return "Flat previews in a black notch that grows out of the middle of the edge, as tall as the windows in it."
+        }
+    }
+}
+
 /// Every user-facing setting, persisted in `UserDefaults` and observable from SwiftUI.
 ///
 /// `@AppStorage` is deliberately not used: the panel, the hover monitor and the capture loop
@@ -58,6 +92,7 @@ final class Preferences: ObservableObject {
     private enum Key {
         static let scope = "panelScope"
         static let screen = "panelScreen"
+        static let style = "panelStyle"
         static let hotZoneWidth = "hotZoneWidth"
         static let hoverDelay = "hoverDelay"
         static let hideDelay = "hideDelay"
@@ -83,6 +118,7 @@ final class Preferences: ObservableObject {
         defaults.register(defaults: [
             Key.scope: PanelScope.minimizedOnly.rawValue,
             Key.screen: PanelScreen.underCursor.rawValue,
+            Key.style: PanelStyle.floating.rawValue,
             // 2pt, not 1: a single point is genuinely hard to hit on a trackpad, and macOS
             // itself parks the pointer at x=0 only when you overshoot.
             Key.hotZoneWidth: 2.0,
@@ -119,6 +155,11 @@ final class Preferences: ObservableObject {
     var screen: PanelScreen {
         get { PanelScreen(rawValue: defaults.string(forKey: Key.screen) ?? "") ?? .underCursor }
         set { objectWillChange.send(); defaults.set(newValue.rawValue, forKey: Key.screen) }
+    }
+
+    var style: PanelStyle {
+        get { PanelStyle(rawValue: defaults.string(forKey: Key.style) ?? "") ?? .floating }
+        set { objectWillChange.send(); defaults.set(newValue.rawValue, forKey: Key.style) }
     }
 
     /// How many points from the left edge count as "at the edge".

@@ -98,12 +98,57 @@ final class SiderPanelController {
         // Card + the strip's 6pt container padding on each side + the per-card slack the
         // hover state needs on each side (`WindowCardView.hoverHeadroom`), plus a little
         // over so the hover shadow has somewhere to fall.
-        let width = CGFloat(prefs.cardWidth) + 12 + WindowCardView.hoverHeadroom * 2 + 8
+        let strip = CGFloat(prefs.cardWidth) + 12 + WindowCardView.hoverHeadroom * 2
+        if prefs.style == .sidebar {
+            // Flush against the edge, and wider than the bar itself by the flares that sweep
+            // out of its trailing corners (`SidebarBackdrop`).
+            return NSRect(x: screen.visibleFrame.minX,
+                          y: screen.frame.minY,
+                          width: strip + SidebarBackdrop.flareRadius,
+                          height: screen.frame.height)
+        }
+        if prefs.style == .notch {
+            // Flush too. The window stays as tall as the display — the notch is drawn inside
+            // it at whatever height the strip needs (`NotchBackdrop`).
+            return NSRect(x: screen.visibleFrame.minX,
+                          y: screen.frame.minY,
+                          width: strip,
+                          height: screen.frame.height)
+        }
+        let width = strip + 8
         return NSRect(x: screen.visibleFrame.minX + 8,
                       y: screen.frame.minY,
                       width: width,
                       height: screen.frame.height)
     }
+
+    /// The part of the window that is actually panel. In the sidebar style the window also
+    /// holds the corner flares, which are a few curved pixels in an otherwise empty column —
+    /// the pointer there is not "on the panel" for hovering, dismissing or dropping.
+    private var bodyFrame: NSRect {
+        var frame = panel.frame
+        if prefs.style == .sidebar { frame.size.width -= SidebarBackdrop.flareRadius }
+        return frame
+    }
+
+    /// The floating cards sit under the menu bar and the Dock like any other window. The
+    /// sidebar goes over both: it is meant to read as part of the screen's own border, and
+    /// that only works if it reaches the top and bottom of the display unbroken.
+    private var panelLevel: NSWindow.Level {
+        prefs.style == .sidebar
+            ? NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
+            : .floating
+    }
+
+    /// Whether opening and closing move the window itself. Not for the notch: its flares
+    /// have to sit on the screen edge from the first frame, so the window is put straight
+    /// where it belongs and the notch grows out of the edge inside it (`NotchBackdrop.reveal`).
+    private var slidesWindow: Bool { prefs.style != .notch }
+
+    /// The window's alpha when it is parked off-screen. The floating cards fade as they
+    /// travel; the sidebar and the notch are solid objects and stay opaque the whole way,
+    /// moving only.
+    private var awayAlpha: CGFloat { prefs.style.isSolid ? 1 : 0 }
 
     /// How much of the top and bottom of a full-height panel the menu bar and Dock cover.
     private func contentInsets(on screen: NSScreen) -> (top: CGFloat, bottom: CGFloat) {
@@ -157,8 +202,9 @@ final class SiderPanelController {
         // Start fully off the side of the screen and transparent, so the first frame the
         // user sees is the panel already on its way out rather than sitting at its
         // destination.
-        panel.setFrame(offscreenFrame(for: target), display: false)
-        panel.alphaValue = 0
+        panel.level = panelLevel
+        panel.setFrame(slidesWindow ? offscreenFrame(for: target) : target, display: false)
+        panel.alphaValue = awayAlpha
         panel.orderFrontRegardless()
 
         // easeOut: fast off the edge, settling at the end. The cards' spring picks up where
@@ -183,9 +229,10 @@ final class SiderPanelController {
         model.hovered = nil
         model.selected = nil
 
-        let gone = offscreenFrame(for: panel.frame)
+        // With nothing to slide this is only the wait for the notch to draw itself back in.
+        let gone = slidesWindow ? offscreenFrame(for: panel.frame) : panel.frame
 
-        slide(to: gone, alpha: 0, duration: closeDuration, curve: .easeIn) { [weak self] in
+        slide(to: gone, alpha: awayAlpha, duration: closeDuration, curve: .easeIn) { [weak self] in
             // Only actually order out if nothing re-opened us in the meantime — a fast
             // out-and-back-in would otherwise leave an invisible panel on screen.
             guard let self, !self.isVisible else { return }
@@ -218,7 +265,7 @@ final class SiderPanelController {
 
     /// Current frame, or nil when the panel is not showing. Handed to `EdgeHoverMonitor` so
     /// the pointer resting on a card counts as "still here".
-    var visibleFrame: CGRect? { isVisible ? panel.frame : nil }
+    var visibleFrame: CGRect? { isVisible ? bodyFrame : nil }
 
     // MARK: - Drop target (a window dragged to the edge)
 
@@ -337,7 +384,7 @@ final class SiderPanelController {
         // Released back over the panel: treat it as a cancel and leave the window where it is.
         // The margin matches the one the hover monitor forgives, so "still on the strip" means
         // the same thing to both.
-        let overPanel = panel.frame.insetBy(dx: -24, dy: -8).contains(point)
+        let overPanel = bodyFrame.insetBy(dx: -24, dy: -8).contains(point)
         guard !overPanel else { return }
 
         let area = (NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) }
@@ -360,7 +407,7 @@ final class SiderPanelController {
                 // arrives here too, and closing on it made every click and every drag-out
                 // die the instant it began. Test the location instead.
                 let point = NSEvent.mouseLocation
-                guard !self.panel.frame.insetBy(dx: -6, dy: -6).contains(point) else { return }
+                guard !self.bodyFrame.insetBy(dx: -6, dy: -6).contains(point) else { return }
                 self.hide()
             }
         }
