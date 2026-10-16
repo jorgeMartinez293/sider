@@ -51,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fourFingers.startIndex = { [weak self] in self?.panel.gestureStartIndex ?? 0 }
         fourFingers.onBegan = { [weak self] in self?.panel.gestureBegan() }
         fourFingers.onSelected = { [weak self] in self?.panel.gestureSelected($0) }
+        fourFingers.onMoved = { [weak self] in self?.panel.gestureMoved($0) }
         fourFingers.onEnded = { [weak self] _ in self?.panel.gestureEnded() }
         fourFingers.onCancelled = { [weak self] in self?.panel.gestureCancelled() }
         // A tap with the whole hand puts away the window in front — ⌘M without the keyboard.

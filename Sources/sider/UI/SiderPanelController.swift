@@ -198,6 +198,7 @@ final class SiderPanelController {
         isVisible = true
         registry.setPanelVisible(true)
         ThumbnailService.shared.refreshVisible()
+        Haptics.levelChange()
 
         // Start fully off the side of the screen and transparent, so the first frame the
         // user sees is the panel already on its way out rather than sitting at its
@@ -217,6 +218,13 @@ final class SiderPanelController {
         DispatchQueue.main.async { self.model.isOpen = true }
 
         installDismissMonitors()
+
+        // Resolved after the panel is up: the Accessibility round trip is not worth delaying
+        // the slide for, and the frame only has to be there by the time the cards have landed.
+        registry.focusedWindowID { [weak self] id in
+            guard let self, self.isVisible else { return }
+            self.model.focused = id
+        }
     }
 
     func hide() {
@@ -228,6 +236,9 @@ final class SiderPanelController {
         model.isOpen = false
         model.hovered = nil
         model.selected = nil
+        model.focused = nil
+        model.lean = 0
+        model.committed = false
 
         // With nothing to slide this is only the wait for the notch to draw itself back in.
         let gone = slidesWindow ? offscreenFrame(for: panel.frame) : panel.frame
@@ -288,6 +299,12 @@ final class SiderPanelController {
     // MARK: - Actions
 
     private func restore(_ window: ManagedWindow) {
+        bringBack(window)
+        hide()
+        onDismissAfterAction?()
+    }
+
+    private func bringBack(_ window: ManagedWindow) {
         // The screen the panel is on, which is the one the pointer is on, which is the one the
         // user is looking at. Resolved here rather than inside the registry because the move
         // runs off the main thread by then, and `NSScreen` is not something to hand across.
@@ -296,8 +313,6 @@ final class SiderPanelController {
         // is where the user left it, and raising it should not also move it.
         let centers = prefs.centerOnOpen && window.isMinimized
         registry.restore(window, placement: centers ? .centered(in: area) : .unchanged)
-        hide()
-        onDismissAfterAction?()
     }
 
     // MARK: - Four-finger gesture
@@ -320,14 +335,31 @@ final class SiderPanelController {
 
     var gestureItemCount: Int { registry.windows.count }
 
-    /// Where the highlight lands first: the most recently put-away window, wherever the
-    /// layout has put it — the middle of a centred strip, the top of a plain one.
+    /// Where the highlight lands first: the window that had focus when the panel opened, if
+    /// the strip holds it; otherwise the most recently put-away window, wherever the layout
+    /// has put it — the middle of a centred strip, the top of a plain one.
+    ///
+    /// Read on every frame of the gesture, so a focus that resolves a moment after the panel
+    /// opens is still picked up before the highlight first lands.
     var gestureStartIndex: Int {
+        if let id = model.focused, let index = visualOrder.firstIndex(where: { $0.id == id }) {
+            return index
+        }
         guard prefs.centeredStack else { return 0 }
         return CenteredStackLayout.order(count: registry.windows.count).firstIndex(of: 0) ?? 0
     }
 
+    /// The card the gesture is on, as a position in `visualOrder`.
+    private var gestureIndex: Int?
+
+    /// How long the frame is left swelling on the chosen card before the panel goes: long
+    /// enough to be seen.
+    private static let confirmHold: TimeInterval = 0.14
+    private var confirmation: DispatchWorkItem?
+
     func gestureBegan() {
+        // A choice still being confirmed is over: its panel goes now, this hand's takes over.
+        finishConfirmation()
         isGestureActive = true
         openedByGesture = !isVisible
         show(on: screenUnderPointer())
@@ -335,25 +367,56 @@ final class SiderPanelController {
 
     func gestureSelected(_ index: Int?) {
         let order = visualOrder
+        gestureIndex = index
         model.selected = index.flatMap { order.indices.contains($0) ? order[$0].id : nil }
+        if index == nil { model.lean = 0 }
+    }
+
+    /// The fingers moved. `position` is where they are along the strip, in cards; the frame
+    /// leans toward it from the card it is on.
+    func gestureMoved(_ position: CGFloat) {
+        guard let gestureIndex else { return }
+        let lean = (position - CGFloat(gestureIndex)).clamped(-1, 1)
+        if abs(lean - model.lean) > 0.002 { model.lean = lean }
     }
 
     /// Fingers lifted: bring back the highlighted window, or, with nothing highlighted, just
     /// let the panel go again.
     func gestureEnded() {
-        defer { isGestureActive = false }
+        gestureIndex = nil
         // `model.selected` is cleared by `hide()`, so an Escape pressed mid-gesture counts as
         // the cancel it was meant as, even though the fingers are still moving.
         if let id = model.selected, let window = registry.windows.first(where: { $0.id == id }) {
-            restore(window)
-        } else if openedByGesture {
-            hide()
+            // The window comes back at once. The panel stays a moment, the frame settled on
+            // its card and swollen, so the choice is seen to have been taken.
+            bringBack(window)
+            model.lean = 0
+            model.committed = true
+            let work = DispatchWorkItem { [weak self] in self?.finishConfirmation() }
+            confirmation = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.confirmHold, execute: work)
+        } else {
+            isGestureActive = false
+            if openedByGesture { hide() }
         }
     }
 
+    /// Puts the panel away after a choice, now.
+    private func finishConfirmation() {
+        guard let work = confirmation else { return }
+        work.cancel()
+        confirmation = nil
+        isGestureActive = false
+        hide()
+        onDismissAfterAction?()
+    }
+
     func gestureCancelled() {
+        finishConfirmation()
+        gestureIndex = nil
         isGestureActive = false
         model.selected = nil
+        model.lean = 0
         if openedByGesture { hide() }
     }
 

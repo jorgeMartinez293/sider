@@ -13,6 +13,9 @@ final class FourFingerSwitcher {
     var onBegan: (() -> Void)?
     /// The highlight moved to this card, or off all of them.
     var onSelected: ((Int?) -> Void)?
+    /// The fingers moved with a card highlighted: where they are along the strip, in cards —
+    /// continuous, where `onSelected` only ever reports whole ones.
+    var onMoved: ((CGFloat) -> Void)?
     /// The fingers lifted. The index is the highlighted card, if there was one.
     var onEnded: ((Int?) -> Void)?
     /// The gesture was abandoned; put the panel away without choosing anything.
@@ -98,6 +101,7 @@ final class FourFingerSwitcher {
                                     startIndex: startIndex(),
                                     holdOff: tapEnabled && tap.isCandidate)
         dispatch(events)
+        if gesture.isActive, gesture.selected != nil { onMoved?(gesture.position) }
         updateEngagement(from: frame)
     }
 

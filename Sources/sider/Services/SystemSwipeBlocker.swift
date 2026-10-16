@@ -18,6 +18,13 @@ import QuartzCore
 /// The event layout is not public. The field numbers below are the ones every tool that
 /// synthesises these swipes uses, and each decision is logged, so if a future macOS changes
 /// them the log says what it saw instead of the feature silently doing nothing.
+///
+/// The same tap also mutes scrolling. Four fingers on the pad still produce scroll events,
+/// which land on whatever window is under the pointer — so choosing a card scrolled the app
+/// behind the panel. A scroll that sider's fingers take part in, along with the momentum it
+/// leaves behind, reaches its app with its movement zeroed: still delivered, so the app sees
+/// every scroll it was told began also end, but going nowhere. Two-finger scrolling is never
+/// touched.
 final class SystemSwipeBlocker {
 
     /// Asked once, at the start of each system swipe: does this one belong to sider?
@@ -36,6 +43,11 @@ final class SystemSwipeBlocker {
     /// out in full: if their layout is ever not what this file expects, that is the only
     /// place it shows.
     private var described = 0
+    /// Whether the trackpad scroll in progress, and the momentum after it, is being muted.
+    /// Set by any of its events arriving while the gesture has the pad, and held until the
+    /// next scroll begins: the hand lifting peels down to two fingers, and those last few
+    /// events must not nudge the app either.
+    private var mutingScroll = false
 
     // MARK: - Event layout
 
@@ -83,10 +95,12 @@ final class SystemSwipeBlocker {
         source = nil
         tap = nil
         dropping = false
+        mutingScroll = false
     }
 
     private func install() -> Bool {
         let mask = CGEventMask(1) << Self.gestureType | CGEventMask(1) << Self.dockControlType
+            | CGEventMask(1) << CGEventType.scrollWheel.rawValue
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap,
                                           place: .headInsertEventTap,
                                           options: .defaultTap,
@@ -119,6 +133,10 @@ final class SystemSwipeBlocker {
             if let tap = blocker.tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return pass
         }
+        if type == .scrollWheel {
+            blocker.muteIfOurs(event)
+            return pass
+        }
         return blocker.shouldDrop(event, type: type) ? nil : pass
     }
 
@@ -147,5 +165,33 @@ final class SystemSwipeBlocker {
         let drop = dropping
         if phase == Self.phaseEnded || phase == Self.phaseCancelled { dropping = false }
         return drop
+    }
+
+    // MARK: - Scrolling
+
+    private static let scrollBegan: Int64 = 1
+    private static let scrollMayBegin: Int64 = 128
+
+    private func muteIfOurs(_ event: CGEvent) {
+        // Mouse wheels click in steps; only trackpads (and Magic Mice) scroll continuously.
+        guard event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0 else { return }
+
+        // Momentum carries on from the scroll before it, so it keeps that scroll's verdict.
+        if event.getIntegerValueField(.scrollWheelEventMomentumPhase) == 0 {
+            let phase = event.getIntegerValueField(.scrollWheelEventScrollPhase)
+            if phase == Self.scrollBegan || phase == Self.scrollMayBegin { mutingScroll = false }
+            if !mutingScroll, shouldBlock() {
+                mutingScroll = true
+                Logger.log("system swipe blocker: muting trackpad scroll")
+            }
+        }
+        guard mutingScroll else { return }
+
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: 0)
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: 0)
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: 0)
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: 0)
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: 0)
     }
 }

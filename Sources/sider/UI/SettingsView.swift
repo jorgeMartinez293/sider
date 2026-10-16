@@ -35,6 +35,11 @@ struct SettingsView: View {
             Text(prefs.scope.detail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Toggle("Leave out minimized windows",
+                   isOn: Binding(get: { prefs.hideMinimized },
+                                 set: { prefs.hideMinimized = $0 }))
+                // With only minimized windows collected, this would empty the panel.
+                .disabled(prefs.scope == .minimizedOnly)
 
             Picker("Open on", selection: Binding(get: { prefs.screen }, set: { prefs.screen = $0 })) {
                 ForEach(PanelScreen.allCases) { screen in
@@ -79,6 +84,9 @@ struct SettingsView: View {
             Toggle("Tap with five fingers to put the front window away",
                    isOn: Binding(get: { prefs.fiveFingerMinimize },
                                  set: { prefs.fiveFingerMinimize = $0 }))
+            Toggle("Haptic feedback on the trackpad",
+                   isOn: Binding(get: { prefs.hapticsEnabled },
+                                 set: { prefs.hapticsEnabled = $0 }))
             Toggle("Toggle with ⌥⌘S",
                    isOn: Binding(get: { prefs.hotKeyEnabled },
                                  set: { prefs.hotKeyEnabled = $0; HotKeyManager.shared.apply(enabled: $0) }))
@@ -127,6 +135,24 @@ struct SettingsView: View {
                 Text("Stacked from the middle, the window you just put away sits at the centre of the screen and the others spread out above and below it, so the newest one is always in the same place. Off, they list from the top.\n\nWithout the panel behind them the previews float straight on your desktop.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+
+            Section {
+                Toggle("Border", isOn: Binding(get: { prefs.borderEnabled },
+                                               set: { prefs.borderEnabled = $0 }))
+                if prefs.borderEnabled {
+                    Toggle("Add glow", isOn: Binding(get: { prefs.borderGlow },
+                                                     set: { prefs.borderGlow = $0 }))
+                    ColorPicker("Color", selection: Binding(get: { Color(nsColor: prefs.borderColor) },
+                                                            set: { prefs.borderColor = NSColor($0) }))
+                    slider("Thickness", value: Binding(get: { prefs.borderWidth },
+                                                       set: { prefs.borderWidth = $0 }),
+                           range: 1...12, unit: "pt")
+                }
+            } footer: {
+                Text("A coloured edge along the sidebar or the notch. Floating cards have no surface to outline.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(!prefs.style.isSolid)
 
             Section {
                 slider("Edge sensitivity", value: Binding(get: { prefs.hotZoneWidth },

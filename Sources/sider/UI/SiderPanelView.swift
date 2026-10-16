@@ -53,12 +53,35 @@ struct SiderPanelView: View {
         }
         // The window is wider than the bar by its flares; everything else stays on the bar.
         .padding(.trailing, isSidebar ? SidebarBackdrop.flareRadius : 0)
+        .overlay { border }
         .background {
             if isSidebar { SidebarBackdrop().fill(.black) }
             if isNotch { notchSilhouette }
         }
         // On black regardless of the system appearance, or the captions are black on black.
         .environment(\.colorScheme, prefs.style.isSolid ? .dark : systemScheme)
+    }
+
+    // MARK: - The border
+
+    /// The coloured edge along the sidebar's or the notch's free sides. Drawn on top of the
+    /// cards' container but inside the 6pt strip margin, so it never touches a preview.
+    @ViewBuilder
+    private var border: some View {
+        if prefs.borderEnabled && prefs.style.isSolid {
+            let color = Color(nsColor: prefs.borderColor)
+            let width = CGFloat(prefs.borderWidth)
+            if isNotch {
+                inNotch {
+                    PanelEdgeBorder(shape: NotchBackdrop(reveal: model.isOpen ? 1 : 0),
+                                    color: color, width: width, glow: prefs.borderGlow)
+                        .animation(notchReveal, value: model.isOpen)
+                }
+            } else {
+                PanelEdgeBorder(shape: SidebarBackdrop(), color: color, width: width,
+                                glow: prefs.borderGlow)
+            }
+        }
     }
 
     // MARK: - The notch
@@ -208,6 +231,14 @@ struct SiderPanelView: View {
                             )
                         }
                     }
+                    // The frame that marks the card being chosen is one shape that travels
+                    // between cards, not a highlight per card switching on and off, so
+                    // moving the selection reads as moving. Drawn over the cards, in the
+                    // strip's own space, so it scrolls with them.
+                    .coordinateSpace(name: CardFramesKey.space)
+                    .overlayPreferenceValue(CardFramesKey.self) { frames in
+                        if prefs.style.isSolid { selectionLens(frames) }
+                    }
                     .padding(.vertical, 2)
                     .reportingContentHeight()
                     // Centred vertically when it fits, scrolling normally when it does not.
@@ -230,6 +261,17 @@ struct SiderPanelView: View {
                 }
             }
         }
+    }
+
+    /// The card the frame is on: the one the fingers chose, or else the one under the pointer,
+    /// or else the window that had focus when the panel opened.
+    private func selectionLens(_ frames: [String: CGRect]) -> some View {
+        let ids = laidOut.map { $0.window.id }
+        let target = model.selected ?? model.hovered ?? model.focused
+        return SelectionLens(rects: ids.map { frames[$0] },
+                             index: target.flatMap { ids.firstIndex(of: $0) },
+                             lean: model.lean,
+                             committed: model.committed)
     }
 
     private var restingInsets: CGFloat { model.topInset + model.bottomInset + 24 }
@@ -300,19 +342,32 @@ struct SidebarBackdrop: Shape {
     static let flareRadius: CGFloat = 30
 
     func path(in rect: CGRect) -> Path {
-        let r = Self.flareRadius
-        let edge = rect.maxX - r
         var path = Path()
         path.move(to: CGPoint(x: rect.minX, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        addFreeEdge(to: &path, in: rect)
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+
+    /// Only the sides that are not against the screen: flare, bar edge, flare.
+    func outline(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.maxX, y: rect.minY))
+        addFreeEdge(to: &path, in: rect)
+        return path
+    }
+
+    /// Continues from the top trailing corner, `(maxX, minY)`, down to `(maxX, maxY)`.
+    private func addFreeEdge(to path: inout Path, in rect: CGRect) {
+        let r = Self.flareRadius
+        let edge = rect.maxX - r
         path.addArc(center: CGPoint(x: rect.maxX, y: rect.minY + r), radius: r,
                     startAngle: .degrees(-90), endAngle: .degrees(-180), clockwise: true)
         path.addLine(to: CGPoint(x: edge, y: rect.maxY - r))
         path.addArc(center: CGPoint(x: rect.maxX, y: rect.maxY - r), radius: r,
                     startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.closeSubpath()
-        return path
     }
 }
 
@@ -339,6 +394,13 @@ struct NotchBackdrop: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
+        var path = outline(in: rect)
+        path.closeSubpath()
+        return path
+    }
+
+    /// The silhouette without the side against the screen edge, which `path` closes.
+    func outline(in rect: CGRect) -> Path {
         let width = rect.width * reveal
         guard width > 0 else { return Path() }
         let rect = CGRect(x: rect.minX, y: rect.minY, width: width, height: rect.height)
@@ -357,8 +419,148 @@ struct NotchBackdrop: Shape {
         path.addLine(to: CGPoint(x: rect.minX + f, y: rect.maxY - f))
         path.addArc(center: CGPoint(x: rect.minX + f, y: rect.maxY), radius: f,
                     startAngle: .degrees(-90), endAngle: .degrees(-180), clockwise: true)
-        path.closeSubpath()
         return path
+    }
+}
+
+/// A backdrop shape that can also give its outline minus the side flush with the screen.
+protocol EdgeShape: Shape {
+    func outline(in rect: CGRect) -> Path
+}
+
+extension SidebarBackdrop: EdgeShape {}
+extension NotchBackdrop: EdgeShape {}
+
+/// The backdrop's open outline as a shape of its own, animating along with it.
+private struct EdgeOutline<Base: EdgeShape>: Shape {
+    var base: Base
+
+    var animatableData: Base.AnimatableData {
+        get { base.animatableData }
+        set { base.animatableData = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path { base.outline(in: rect) }
+}
+
+/// Border along the inside of a backdrop's free edges: a crisp stroke, with an optional blurred
+/// halo under it. Clipped to the silhouette so nothing bleeds onto the desktop, and so the
+/// stroke is `width` thick on the inside only.
+private struct PanelEdgeBorder<Base: EdgeShape>: View {
+    let shape: Base
+    let color: Color
+    let width: CGFloat
+    let glow: Bool
+
+    var body: some View {
+        let outline = EdgeOutline(base: shape)
+        ZStack {
+            if glow {
+                outline.stroke(color, lineWidth: width).blur(radius: width)
+            }
+            // Doubled: the outer half falls outside the clip.
+            outline.stroke(color.opacity(0.9), lineWidth: width * 2)
+        }
+        .clipShape(shape)
+        .allowsHitTesting(false)
+    }
+}
+
+/// The frame around the card being chosen, and everything about how it moves.
+///
+/// Its place is a single number — which card, in cards, fractions included — and the spring
+/// runs on that number, so a jump of three cards and a nudge of one both travel the way the
+/// desktop switcher's frame does in vaho: under the fingers while they lean, with a little
+/// weight when it lands. The rectangle is worked out from the number on every frame, which
+/// is what lets it cross cards of different heights.
+private struct SelectionLens: View {
+    /// Each card's picture, in the order they are drawn. `nil` for one not laid out yet.
+    let rects: [CGRect?]
+    /// The card it is on. `nil`: nothing is chosen, and it fades where it was.
+    let index: Int?
+    /// How far the fingers lean toward a neighbour, -1…1 cards.
+    let lean: CGFloat
+    /// The choice was taken.
+    let committed: Bool
+
+    /// How much of the fingers' lean the frame follows. Enough that the strip is seen to
+    /// answer before the selection changes, not so much that it looks like it already left.
+    private static let leanShare: CGFloat = 0.3
+
+    /// Where it last was, so it can fade out in place.
+    @State private var rest: CGFloat = 0
+    /// Whether it was showing on the previous frame. One that was not appears where it is
+    /// going instead of sliding in from wherever it last was.
+    @State private var live = false
+
+    private var position: CGFloat? {
+        guard let index else { return nil }
+        let last = CGFloat(max(rects.count - 1, 0))
+        return (CGFloat(index) + lean * Self.leanShare).clamped(0, last)
+    }
+
+    var body: some View {
+        let shown = position
+        let at = shown ?? rest
+        SelectionRing(position: at, rects: rects, committed: committed)
+            // Tight enough to stay under the fingers while they lean, loose enough that the
+            // jump to the next card lands with a little weight.
+            .animation(live ? .interactiveSpring(response: 0.22, dampingFraction: 0.78) : nil,
+                       value: at)
+            .opacity(shown != nil ? 1 : 0)
+            .animation(.easeOut(duration: 0.18), value: shown != nil)
+            .allowsHitTesting(false)
+            .onChange(of: position) { new in
+                if let new { rest = new }
+                live = new != nil
+            }
+    }
+}
+
+/// The ring itself at one point of its travel. Animatable in `position`, so the spring drives
+/// the number and the rectangle follows.
+private struct SelectionRing: View, Animatable {
+    var position: CGFloat
+    let rects: [CGRect?]
+    let committed: Bool
+
+    var animatableData: CGFloat {
+        get { position }
+        set { position = newValue }
+    }
+
+    var body: some View {
+        if let rect = rect(at: position) {
+            // Outside the picture, with a hairline of black between the two, and glowing a
+            // little so it reads as lit rather than outlined.
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(.white, lineWidth: 3)
+                .shadow(color: .white.opacity(0.75), radius: 6)
+                .frame(width: rect.width + 8, height: rect.height + 8)
+                // The frame swelling once is what says the choice was taken.
+                .scaleEffect(committed ? 1.07 : 1)
+                .animation(.spring(response: 0.2, dampingFraction: 0.55), value: committed)
+                .position(x: rect.midX, y: rect.midY)
+        }
+    }
+
+    /// The rectangle `position` cards down the strip: between the two cards it is between,
+    /// and past the first or last by the same step when the spring overshoots.
+    private func rect(at position: CGFloat) -> CGRect? {
+        guard let first = rects.indices.first else { return nil }
+        guard rects.count > 1 else { return rects[first] }
+        let low = min(max(Int(position.rounded(.down)), 0), rects.count - 2)
+        let t = position - CGFloat(low)
+        switch (rects[low], rects[low + 1]) {
+        case let (a?, b?):
+            return CGRect(x: a.minX + (b.minX - a.minX) * t,
+                          y: a.minY + (b.minY - a.minY) * t,
+                          width: a.width + (b.width - a.width) * t,
+                          height: a.height + (b.height - a.height) * t)
+        case let (a?, nil): return a
+        case let (nil, b?): return b
+        default: return nil
+        }
     }
 }
 

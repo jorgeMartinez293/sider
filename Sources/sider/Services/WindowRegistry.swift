@@ -105,26 +105,48 @@ final class WindowRegistry: ObservableObject {
         }
 
         let scope = Preferences.shared.scope
+        let hideMinimized = Preferences.shared.hideMinimized && scope != .minimizedOnly
         let myPID = ProcessInfo.processInfo.processIdentifier
+        // Only needed to vet windows without a minimize button, which only the widest scope
+        // collects; one WindowServer call per scan rather than per window.
+        let visibleIDs = scope == .allWindows ? Self.visibleWindowIDs() : []
         var found: [ManagedWindow] = []
 
         for app in NSWorkspace.shared.runningApplications {
-            // .regular only: accessory and prohibited apps are menu-bar items and helpers.
-            // They own windows (status item panels, hidden host windows) that the user never
-            // thinks of as windows and would only clutter the panel.
-            guard app.activationPolicy == .regular, app.processIdentifier != myPID else { continue }
+            // .regular only in the narrow scopes: accessory apps are menu-bar items, and the
+            // windows they own (status item panels, hidden host windows) are never minimized
+            // or hidden in the ⌘H sense. "Every window" takes them too, because their settings
+            // windows are real windows — those are vetted by `visibleIDs` below.
+            // .prohibited apps are background helpers with no UI to speak of.
+            let policyOK = app.activationPolicy == .regular
+                || (scope == .allWindows && app.activationPolicy == .accessory)
+            guard policyOK, app.processIdentifier != myPID else { continue }
             guard !app.isTerminated else { continue }
 
             let appElement = AccessibilityBridge.application(pid: app.processIdentifier)
             let appName = app.localizedName ?? "App"
 
             for window in AccessibilityBridge.elements(appElement, kAXWindowsAttribute) {
-                // Real windows only — not sheets, palettes or system dialogs, none of which
-                // can be put away independently. See `isMinimizableWindow` for why this is
-                // not simply a subrole check.
-                guard AccessibilityBridge.isMinimizableWindow(window) else { continue }
+                guard AccessibilityBridge.string(window, kAXRoleAttribute) == kAXWindowRole as String
+                else { continue }
+
+                // In the narrow scopes, real windows only — not sheets, palettes or system
+                // dialogs, none of which can be put away independently. See
+                // `isMinimizableWindow` for why this is not simply a subrole check.
+                let windowID = AccessibilityBridge.windowID(of: window)
+                let canMinimize = AccessibilityBridge.isMinimizableWindow(window)
+                if !canMinimize {
+                    // "Every window" means every window: settings windows, inspectors and
+                    // the like have no minimize button but are exactly what the user is
+                    // looking for. Accepted only while actually drawn at an ordinary level,
+                    // which is what keeps out the invisible host windows and status-item
+                    // popovers that apps also list as windows.
+                    guard scope == .allWindows, let windowID, visibleIDs.contains(windowID)
+                    else { continue }
+                }
 
                 let isMinimized = AccessibilityBridge.bool(window, kAXMinimizedAttribute) ?? false
+                if isMinimized && hideMinimized { continue }
                 let include: Bool
                 switch scope {
                 case .minimizedOnly:      include = isMinimized
@@ -133,7 +155,6 @@ final class WindowRegistry: ObservableObject {
                 }
                 guard include else { continue }
 
-                let windowID = AccessibilityBridge.windowID(of: window)
                 let origin = AccessibilityBridge.point(window, kAXPositionAttribute) ?? .zero
                 let size = AccessibilityBridge.size(window, kAXSizeAttribute) ?? CGSize(width: 800, height: 600)
 
@@ -154,6 +175,7 @@ final class WindowRegistry: ObservableObject {
                     appName: appName,
                     bundleIdentifier: app.bundleIdentifier,
                     isMinimized: isMinimized,
+                    canMinimize: canMinimize,
                     frame: CGRect(origin: origin, size: size)
                 ))
             }
@@ -187,6 +209,25 @@ final class WindowRegistry: ObservableObject {
             self.needsAccessibility = false
             if self.windows != ordered { self.windows = ordered }
         }
+    }
+
+    /// Windows the WindowServer is drawing right now below the status-bar level — ordinary
+    /// windows, floating panels and modal dialogs, but not menus, popovers or the menu bar.
+    private static func visibleWindowIDs() -> Set<CGWindowID> {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+        let ceiling = Int(CGWindowLevelForKey(.statusWindow))
+        var ids = Set<CGWindowID>()
+        for info in list {
+            guard let layer = info[kCGWindowLayer as String] as? Int, layer >= 0, layer < ceiling,
+                  let id = info[kCGWindowNumber as String] as? CGWindowID,
+                  (info[kCGWindowAlpha as String] as? Double ?? 1) > 0
+            else { continue }
+            ids.insert(id)
+        }
+        return ids
     }
 
     // MARK: - Actions
@@ -322,6 +363,27 @@ final class WindowRegistry: ObservableObject {
         }
     }
 
+    /// The `ManagedWindow.id` of the window that has the keyboard right now, or nil when there
+    /// is none worth naming (sider itself in front, no focused window, no CGWindowID).
+    ///
+    /// Asked of the frontmost app, like `minimizeFocusedWindow`; the answer arrives on the
+    /// main queue. Only ids built from a CGWindowID are returned — they are the ones a scan
+    /// produces for the same window, so they match a card.
+    func focusedWindowID(completion: @escaping (String?) -> Void) {
+        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              pid != ProcessInfo.processInfo.processIdentifier
+        else { return completion(nil) }
+        scanQueue.async {
+            let app = AccessibilityBridge.application(pid: pid)
+            var id: String?
+            if let focused = AccessibilityBridge.copyAttribute(app, kAXFocusedWindowAttribute),
+               CFGetTypeID(focused) == AXUIElementGetTypeID() {
+                id = AccessibilityBridge.windowID(of: focused as! AXUIElement).map { "w\($0)" }
+            }
+            DispatchQueue.main.async { completion(id) }
+        }
+    }
+
     /// Minimizes whichever window has the keyboard — the five-finger tap.
     ///
     /// Asked of the frontmost app rather than taken from the registry: in the default scope
@@ -346,7 +408,9 @@ final class WindowRegistry: ObservableObject {
     // MARK: - Observers
 
     private func attachObserversToRunningApps() {
-        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+        // Accessory apps too: in the "every window" scope their settings windows are listed,
+        // and an observer is cheap enough not to make that conditional.
+        for app in NSWorkspace.shared.runningApplications where app.activationPolicy != .prohibited {
             attachObserver(pid: app.processIdentifier)
         }
     }

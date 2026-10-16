@@ -60,7 +60,11 @@ struct WindowCardView: View {
         hypot(translation.width, translation.height) > Self.dragThreshold
     }
 
-    private var isHovered: Bool { model.hovered == window.id || model.selected == window.id }
+    private var isHovered: Bool {
+        if model.hovered == window.id || model.selected == window.id { return true }
+        // Nothing chosen yet: the window that had focus on opening reads as the current one.
+        return model.hovered == nil && model.selected == nil && model.focused == window.id
+    }
     private var isDragging: Bool { model.dragging == window.id }
     /// Flat on black (sidebar and notch) rather than tilted on the desktop.
     private var isFlat: Bool { style.isSolid }
@@ -81,6 +85,12 @@ struct WindowCardView: View {
             // is exactly what it looked like the first time: "Claude" rendered as "aude".
             // Stage Manager does the same thing — the picture is in space, the label is flat.
             preview
+                // Where the picture is, in the strip's own space, for the frame that travels
+                // between cards. Read before any transform: it is the layout frame.
+                .background(GeometryReader { geo in
+                    Color.clear.preference(key: CardFramesKey.self,
+                                           value: [window.id: geo.frame(in: .named(CardFramesKey.space))])
+                })
                 // Flatten the preview into ONE layer before the 3D transform.
                 //
                 // Without this the ZStack hands `rotation3DEffect` its layers — the material
@@ -101,7 +111,7 @@ struct WindowCardView: View {
                     // The leading anchor pins the left edge, so flattening on hover widens
                     // the card to the right instead of trimming it on the left.
                     // The solid styles keep their previews flat and say "this one" with
-                    // `selectionFrame` instead.
+                    // the strip's selection frame instead.
                     .degrees(isHovered || isFlat ? 0 : restingTilt),
                     axis: (x: 0, y: 1, z: 0),
                     anchor: .leading,
@@ -114,7 +124,6 @@ struct WindowCardView: View {
                 // shadow as well made the hover read as two separate effects.
                 .shadow(color: .black.opacity(isFlat ? 0 : 0.22), radius: 9, x: 3, y: 5)
                 .animation(.spring(response: 0.34, dampingFraction: 0.72), value: isHovered)
-                .overlay { if isFlat { selectionFrame } }
                 // The badge is attached OUTSIDE the transform stack on purpose. Inside it,
                 // the badge inherited the tilt, the perspective and the hover scale, so the
                 // icon swelled and sheared along with the picture — hover read as "the app
@@ -174,7 +183,7 @@ struct WindowCardView: View {
         )
         .contextMenu {
             Button(window.isMinimized ? "Bring Back" : "Bring to Front", action: onRestore)
-            if !window.isMinimized {
+            if !window.isMinimized && window.canMinimize {
                 Button("Minimize", action: onMinimize)
             }
         }
@@ -219,19 +228,6 @@ struct WindowCardView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(.white.opacity(isHovered ? 0.35 : 0.14), lineWidth: 1)
         )
-    }
-
-    /// The solid styles' answer to "which one": a bright frame just outside the preview,
-    /// glowing a little so it reads as lit rather than outlined.
-    private var selectionFrame: some View {
-        RoundedRectangle(cornerRadius: 13, style: .continuous)
-            .stroke(.white, lineWidth: 3)
-            .shadow(color: .white.opacity(0.75), radius: 6)
-            // Outside the picture, with a hairline of black between the two.
-            .padding(-4)
-            .opacity(isHovered ? 1 : 0)
-            .animation(.easeOut(duration: 0.14), value: isHovered)
-            .allowsHitTesting(false)
     }
 
     /// App icon badge, so a window is identifiable at a glance even when its picture is a
@@ -291,6 +287,15 @@ struct WindowCardView: View {
         // Hard width limit. Without it a long window title lays itself out wider than the
         // card and is clipped by the panel's edge rather than truncated with an ellipsis.
         .frame(width: width, alignment: .leading)
+    }
+}
+
+/// Where each loaded card's picture is, in the strip's coordinate space.
+struct CardFramesKey: PreferenceKey {
+    static let space = "sider.cards"
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { $1 }
     }
 }
 

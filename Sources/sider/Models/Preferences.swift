@@ -9,8 +9,8 @@ enum PanelScope: String, CaseIterable, Identifiable {
     /// Minimized windows plus the windows of apps hidden with ⌘H — those are just as
     /// invisible and just as hard to get back to.
     case minimizedAndHidden
-    /// Every standard window on the Mac, Stage Manager style. Useful on one big screen,
-    /// noisy on several.
+    /// Every window on the Mac, Stage Manager style — settings windows, utility panels and
+    /// the windows of menu-bar apps included. Useful on one big screen, noisy on several.
     case allWindows
 
     var id: String { rawValue }
@@ -27,7 +27,7 @@ enum PanelScope: String, CaseIterable, Identifiable {
         switch self {
         case .minimizedOnly:      return "Only what you sent to the Dock."
         case .minimizedAndHidden: return "Also the windows of apps hidden with ⌘H."
-        case .allWindows:         return "Every standard window, including the one in front."
+        case .allWindows:         return "Every window, including settings windows and the one in front."
         }
     }
 }
@@ -104,13 +104,23 @@ final class Preferences: ObservableObject {
         static let clickOutsideDismisses = "clickOutsideDismisses"
         static let openOnCurrentSpace = "openOnCurrentSpace"
         static let dropToMinimize = "dropToMinimize"
+        static let hideMinimized = "hideMinimized"
         static let centeredStack = "centeredStack"
         static let showPanelBackground = "showPanelBackground"
         static let openWhenEmpty = "openWhenEmpty"
         static let centerOnOpen = "centerOnOpen"
         static let fourFingerSwitch = "fourFingerSwitch"
         static let fiveFingerMinimize = "fiveFingerMinimize"
+        static let hapticsEnabled = "hapticsEnabled"
+        static let borderEnabled = "borderEnabled"
+        static let borderGlow = "borderGlow"
+        static let borderColor = "borderColor"
+        static let borderWidth = "borderWidth"
     }
+
+    /// The border's colour until the user picks one: a faint cool white, so it reads as an
+    /// edge of light on the black bar rather than a coloured outline.
+    private static let defaultBorderColor: [Double] = [0.956, 0.942, 0.980, 1.0]
 
     private let defaults = UserDefaults.standard
 
@@ -133,6 +143,7 @@ final class Preferences: ObservableObject {
             Key.clickOutsideDismisses: true,
             Key.openOnCurrentSpace: true,
             Key.dropToMinimize: true,
+            Key.hideMinimized: false,
             Key.centeredStack: true,
             // Off: the cards are the interface. A backing panel behind them is a second,
             // competing rectangle over whatever you were looking at.
@@ -141,6 +152,12 @@ final class Preferences: ObservableObject {
             Key.centerOnOpen: true,
             Key.fourFingerSwitch: true,
             Key.fiveFingerMinimize: true,
+            Key.hapticsEnabled: true,
+            // Off: the black bar and notch are already a clear shape against the desktop.
+            Key.borderEnabled: false,
+            Key.borderGlow: false,
+            Key.borderColor: Self.defaultBorderColor,
+            Key.borderWidth: 3.0,
             Key.hasCompletedWelcome: false,
         ])
     }
@@ -206,6 +223,14 @@ final class Preferences: ObservableObject {
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.openOnCurrentSpace) }
     }
 
+    /// Whether minimized windows are left out of the panel. Only meaningful in the wider
+    /// scopes — with `.minimizedOnly` it would leave nothing — so it is ignored there, and
+    /// Settings disables the toggle rather than letting it empty the panel.
+    var hideMinimized: Bool {
+        get { defaults.bool(forKey: Key.hideMinimized) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.hideMinimized) }
+    }
+
     /// Whether dragging a window against the left edge minimizes it into the panel.
     var dropToMinimize: Bool {
         get { defaults.bool(forKey: Key.dropToMinimize) }
@@ -265,6 +290,49 @@ final class Preferences: ObservableObject {
     var fiveFingerMinimize: Bool {
         get { defaults.bool(forKey: Key.fiveFingerMinimize) }
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.fiveFingerMinimize) }
+    }
+
+    /// Whether the trackpad ticks when the panel opens and when the selection moves between
+    /// cards.
+    var hapticsEnabled: Bool {
+        get { defaults.bool(forKey: Key.hapticsEnabled) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.hapticsEnabled) }
+    }
+
+    // MARK: - Border (sidebar and notch styles)
+
+    /// Whether the sidebar and the notch get a coloured border along their free edges.
+    var borderEnabled: Bool {
+        get { defaults.bool(forKey: Key.borderEnabled) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.borderEnabled) }
+    }
+
+    /// Whether a blurred halo is layered under the crisp border stroke.
+    var borderGlow: Bool {
+        get { defaults.bool(forKey: Key.borderGlow) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.borderGlow) }
+    }
+
+    /// Stored as four sRGB components, since `UserDefaults` has no colour type.
+    var borderColor: NSColor {
+        get {
+            let c = defaults.array(forKey: Key.borderColor) as? [Double] ?? Self.defaultBorderColor
+            guard c.count == 4 else { return NSColor(srgbRed: 0.956, green: 0.942, blue: 0.980, alpha: 1) }
+            return NSColor(srgbRed: c[0], green: c[1], blue: c[2], alpha: c[3])
+        }
+        set {
+            // Reading components off a non-RGB colour traps, so convert first.
+            let c = newValue.usingColorSpace(.sRGB) ?? NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+            objectWillChange.send()
+            defaults.set([Double(c.redComponent), Double(c.greenComponent),
+                          Double(c.blueComponent), Double(c.alphaComponent)], forKey: Key.borderColor)
+        }
+    }
+
+    /// Thickness of the border, in points.
+    var borderWidth: Double {
+        get { defaults.double(forKey: Key.borderWidth) }
+        set { objectWillChange.send(); defaults.set(newValue.clamped(1, 12), forKey: Key.borderWidth) }
     }
 
     var launchAtLogin: Bool {

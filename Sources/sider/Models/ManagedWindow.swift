@@ -20,6 +20,10 @@ struct ManagedWindow: Identifiable, Equatable {
     var bundleIdentifier: String?
     var isMinimized: Bool
 
+    /// False for windows only the "every window" scope collects — settings windows, panels
+    /// without a minimize button. Restoring one is still a raise; minimizing it is not on offer.
+    var canMinimize: Bool = true
+
     /// Screen frame in Cocoa coordinates while the window is on screen. Used only to keep a
     /// card's aspect ratio right when there is no thumbnail yet.
     var frame: CGRect

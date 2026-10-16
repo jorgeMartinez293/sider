@@ -88,8 +88,9 @@ struct FourFingerGesture {
     private var lastY: CGFloat = 0
     private var lastFingers = 0
     private var travel: CGFloat = 0
-    /// Continuous position in card units; the highlighted card is its rounding.
-    private var position: CGFloat = 0
+    /// Continuous position in card units; the highlighted card is its rounding. Meaningful
+    /// while `selected` is not `nil`.
+    private(set) var position: CGFloat = 0
     private(set) var selected: Int?
     private var belowSince: TimeInterval?
     private var frozenUntil: TimeInterval = 0
