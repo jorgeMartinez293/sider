@@ -85,6 +85,49 @@ Scans run off the main thread and are coalesced with an 80 ms debounce, because 
 action produces an AX notification, a workspace notification and a poll tick within
 milliseconds.
 
+Per-app observers are registered on their own queue, never the main thread, and only for apps
+that can own a window: regular apps at launch, accessory apps once the WindowServer shows them
+with one. `AXObserverAddNotification` is a synchronous round trip, and processes that never
+answer Accessibility — Safari's web content processes, one per few tabs — make each of the eight
+registrations wait out the timeout. Measured: two seconds per process, over twenty seconds of
+frozen main thread at launch with a dozen of them, and two more each time Safari spawned one.
+
+### Which desktop a window is on
+
+The Accessibility list cannot be trusted with this, and does not fail loudly. Measured on
+macOS 27, an app's `kAXWindowsAttribute` holds its open windows **on the desktop it believes is
+on screen** plus its minimized windows **from every desktop**, and each app updates its idea of
+the current desktop on its own schedule after a Space switch. Taken at face value it shows
+minimized windows from other desktops, and for a moment after a switch the old desktop's
+windows instead of the new one's.
+
+So every scan starts by asking the WindowServer: one `CGWindowListCopyWindowInfo` plus
+`CGSCopySpacesForWindows` per window, a few milliseconds for the whole Mac. Reading Space
+membership still works where moving windows does not (see below); minimized windows and
+hidden apps' windows keep their Space, and a window shown on all desktops reports every one.
+That answer is used three ways:
+
+- **Filter.** With *Only windows on the desktop you are on* (the default), a window is kept only
+  if one of its Spaces is the current Space of some display (`CGSCopyManagedDisplaySpaces`, so
+  "Displays have separate Spaces" works). A window whose Space cannot be read is kept.
+- **Skip.** An app with no window on a shown desktop is not asked anything. In "every window"
+  the registry used to ask ~45 processes, several of which time out, and a scan took about four
+  seconds — longer than the poll, so the panel always showed a list from a desktop or two ago.
+  It now asks the five or so apps that have windows, in tens of milliseconds.
+- **Fill in.** A window the WindowServer has on a shown desktop that the app did not list (it
+  has not caught up with a switch yet, or — with the filter off — the window is on another
+  desktop, which no app ever lists) is found with `_AXUIElementCreateWithRemoteToken`, trying
+  element ids until it turns up. That costs up to a thousand round trips, so it is bounded,
+  done once per window and remembered; windows that turn out to have no element at all
+  (offscreen buffers) are remembered too.
+
+`NSWorkspace.activeSpaceDidChangeNotification` drops the cards that are not on the new
+desktop at once, on the main thread, then rescans now and again 0.6 s later. A scan that was
+already running when the desktop changed is discarded rather than published.
+
+Each change to the list logs counts — never titles — and how long the scan took:
+`WindowRegistry: 4 windows on desktop [229], 1 not listed by their app, scanned in 38 ms`.
+
 `restore()` does three things in order — un-minimize, activate the app, then focus and raise
 that specific window — with a beat before the last step. Each is necessary: un-minimizing does
 not bring the app forward, activating does not choose *which* of its windows lands on top, and

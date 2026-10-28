@@ -74,12 +74,13 @@ struct SiderPanelView: View {
             if isNotch {
                 inNotch {
                     PanelEdgeBorder(shape: NotchBackdrop(reveal: model.isOpen ? 1 : 0),
-                                    color: color, width: width, glow: prefs.borderGlow)
+                                    color: color, width: width, style: prefs.borderStyle,
+                                    lightAngle: prefs.borderLightAngle)
                         .animation(notchReveal, value: model.isOpen)
                 }
             } else {
                 PanelEdgeBorder(shape: SidebarBackdrop(), color: color, width: width,
-                                glow: prefs.borderGlow)
+                                style: prefs.borderStyle, lightAngle: prefs.borderLightAngle)
             }
         }
     }
@@ -443,26 +444,94 @@ private struct EdgeOutline<Base: EdgeShape>: Shape {
     func path(in rect: CGRect) -> Path { base.outline(in: rect) }
 }
 
-/// Border along the inside of a backdrop's free edges: a crisp stroke, with an optional blurred
-/// halo under it. Clipped to the silhouette so nothing bleeds onto the desktop, and so the
+/// Border along the inside of a backdrop's free edges, drawn as a crisp line, a line with a
+/// blurred halo under it, or a directional sheen. Clipped to the silhouette so nothing bleeds onto the desktop, and so the
 /// stroke is `width` thick on the inside only.
 private struct PanelEdgeBorder<Base: EdgeShape>: View {
     let shape: Base
     let color: Color
     let width: CGFloat
-    let glow: Bool
+    let style: BorderStyle
+    let lightAngle: Double
 
     var body: some View {
         let outline = EdgeOutline(base: shape)
         ZStack {
-            if glow {
+            switch style {
+            case .line:
+                // Doubled: the outer half falls outside the clip.
+                outline.stroke(color.opacity(0.9), lineWidth: width * 2)
+            case .glow:
                 outline.stroke(color, lineWidth: width).blur(radius: width)
+                outline.stroke(color.opacity(0.9), lineWidth: width * 2)
+            case .sheen:
+                BorderSheen(path: outline, color: color, width: width, lightAngle: lightAngle)
             }
-            // Doubled: the outer half falls outside the clip.
-            outline.stroke(color.opacity(0.9), lineWidth: width * 2)
         }
         .clipShape(shape)
         .allowsHitTesting(false)
+    }
+}
+
+/// Glass rim for `BorderStyle.sheen`, modeled on the edge of a native macOS widget: a thin,
+/// softly glowing rim runs around the whole outline, and the light hitting it from
+/// `lightAngle` makes it flare (with a whitish hot spot) on that side, easing back to the
+/// base rim along the edges and picking up again as a dimmer bounce highlight on the
+/// opposite corner. That light/bounce pair is what makes the panel read as a 3D slab.
+/// The caller clips to the panel silhouette, so only the inner half of each stroke shows.
+struct BorderSheen<P: Shape>: View {
+    var path: P
+    var color: Color
+    var width: CGFloat
+    /// Degrees counterclockwise from the right edge (0 = right, 90 = top).
+    var lightAngle: Double
+
+    var body: some View {
+        let (lit, far) = Self.endpoints(forAngle: lightAngle)
+        let w = width
+        ZStack {
+            // Bloom: light spilling inward. Strong on the lit side, a faint halo all the way
+            // around, and a softer one where the light bounces back on the far side.
+            path.stroke(LinearGradient(stops: [
+                        .init(color: color.opacity(0.8), location: 0),
+                        .init(color: color.opacity(0.25), location: 0.22),
+                        .init(color: color.opacity(0.1), location: 0.45),
+                        .init(color: color.opacity(0.1), location: 0.65),
+                        .init(color: color.opacity(0.35), location: 1)],
+                                       startPoint: lit, endPoint: far),
+                        lineWidth: w * 2)
+                .blur(radius: w * 1.2)
+            // Rim: never fades out completely, so the outline stays readable everywhere.
+            path.stroke(LinearGradient(stops: [
+                        .init(color: color, location: 0),
+                        .init(color: color.opacity(0.7), location: 0.12),
+                        .init(color: color.opacity(0.42), location: 0.3),
+                        .init(color: color.opacity(0.32), location: 0.45),
+                        .init(color: color.opacity(0.32), location: 0.65),
+                        .init(color: color.opacity(0.55), location: 0.88),
+                        .init(color: color.opacity(0.7), location: 1)],
+                                       startPoint: lit, endPoint: far),
+                        lineWidth: max(1, w * 0.5))
+            // Hot spots: a thin near-white core where the light lands, weaker on the bounce.
+            path.stroke(LinearGradient(stops: [
+                        .init(color: .white.opacity(0.85), location: 0),
+                        .init(color: .white.opacity(0), location: 0.18),
+                        .init(color: .white.opacity(0), location: 0.85),
+                        .init(color: .white.opacity(0.35), location: 1)],
+                                       startPoint: lit, endPoint: far),
+                        lineWidth: max(0.75, w * 0.25))
+        }
+    }
+
+    /// Gradient endpoints for a light coming from `degrees`: the point on the unit square's
+    /// edge in that direction (so diagonals land on the corners) and its mirror opposite.
+    static func endpoints(forAngle degrees: Double) -> (lit: UnitPoint, far: UnitPoint) {
+        let radians = degrees * .pi / 180
+        let dx = cos(radians)
+        let dy = -sin(radians)  // view space: y grows downward
+        let k = 0.5 / max(abs(dx), abs(dy))
+        return (UnitPoint(x: 0.5 + dx * k, y: 0.5 + dy * k),
+                UnitPoint(x: 0.5 - dx * k, y: 0.5 - dy * k))
     }
 }
 

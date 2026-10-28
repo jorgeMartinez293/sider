@@ -51,7 +51,8 @@ final class SpacesBridge: ObservableObject {
     private typealias MainConnectionFn = @convention(c) () -> ConnectionID
     private typealias ActiveSpaceFn = @convention(c) (ConnectionID) -> SpaceID
     private typealias MoveWindowsFn = @convention(c) (ConnectionID, CFArray, SpaceID) -> Void
-    private typealias SpacesForWindowsFn = @convention(c) (ConnectionID, UInt32, CFArray) -> CFArray
+    private typealias SpacesForWindowsFn = @convention(c) (ConnectionID, UInt32, CFArray) -> Unmanaged<CFArray>?
+    private typealias ManagedDisplaySpacesFn = @convention(c) (ConnectionID) -> Unmanaged<CFArray>?
 
     /// RTLD_DEFAULT — searches every image already loaded into the process, which includes
     /// CoreGraphics/SkyLight.
@@ -66,6 +67,7 @@ final class SpacesBridge: ObservableObject {
     private let getActiveSpace = symbol("CGSGetActiveSpace", as: ActiveSpaceFn.self)
     private let moveWindows = symbol("CGSMoveWindowsToManagedSpace", as: MoveWindowsFn.self)
     private let spacesForWindows = symbol("CGSCopySpacesForWindows", as: SpacesForWindowsFn.self)
+    private let managedDisplaySpaces = symbol("CGSCopyManagedDisplaySpaces", as: ManagedDisplaySpacesFn.self)
 
     private init() {
         let present = mainConnectionID != nil && getActiveSpace != nil
@@ -118,6 +120,67 @@ final class SpacesBridge: ObservableObject {
     private func spaces(of windowID: CGWindowID, cid: ConnectionID) -> [Int] {
         guard let spacesForWindows else { return [] }
         // 7 = all Space types.
-        return spacesForWindows(cid, 7, [NSNumber(value: windowID)] as CFArray) as? [Int] ?? []
+        let array = spacesForWindows(cid, 7, [NSNumber(value: windowID)] as CFArray)?.takeRetainedValue()
+        return array as? [Int] ?? []
+    }
+
+    // MARK: - Reading which desktop a window is on
+
+    // Unlike moving a window, *reading* Space membership still works on macOS 26 and 27, and
+    // it is the only reliable way to tell which desktop a window belongs to. The
+    // Accessibility API cannot answer that question, and worse, answers a different one
+    // without saying so — see `WindowRegistry.scan()`.
+
+    /// Whether the WindowServer can be asked which Spaces exist and which window is on which.
+    /// Without it the panel cannot filter by desktop and shows everything it finds.
+    var canReadSpaces: Bool {
+        mainConnectionID != nil && spacesForWindows != nil
+            && (managedDisplaySpaces != nil || getActiveSpace != nil)
+    }
+
+    /// The Space on screen right now on every display.
+    ///
+    /// Every display, not just the active one: with "Displays have separate Spaces" each
+    /// screen shows its own desktop, and a window on the second screen's desktop is just as
+    /// much on screen as one under the menu bar. `CGSGetActiveSpace` only knows the latter,
+    /// so it is the fallback rather than the answer.
+    func currentSpaces() -> Set<Int> {
+        guard let mainConnectionID else { return [] }
+        let cid = mainConnectionID()
+        var current = Set<Int>()
+        if let managedDisplaySpaces,
+           let displays = managedDisplaySpaces(cid)?.takeRetainedValue() as? [[String: Any]] {
+            for display in displays {
+                if let space = display["Current Space"] as? [String: Any],
+                   let id = (space["ManagedSpaceID"] as? Int) ?? (space["id64"] as? Int) {
+                    current.insert(id)
+                }
+            }
+        }
+        if current.isEmpty, let getActiveSpace {
+            let active = getActiveSpace(cid)
+            if active != 0 { current.insert(Int(active)) }
+        }
+        return current
+    }
+
+    /// The Spaces `windowID` belongs to. Every Space for a window shown on all desktops,
+    /// empty for one the WindowServer does not place on any (helper windows that are never
+    /// drawn) or when it cannot be asked.
+    ///
+    /// A minimized window keeps the Space it was minimized from, and a hidden app's windows
+    /// keep theirs — both measured — which is what makes this usable for windows that are
+    /// not on screen at all.
+    func spaces(of windowID: CGWindowID) -> Set<Int> {
+        guard let mainConnectionID else { return [] }
+        return Set(spaces(of: windowID, cid: mainConnectionID()))
+    }
+
+    /// Whether a window on `windowSpaces` belongs on the desktop the user is looking at.
+    ///
+    /// A window whose Space cannot be read is kept: dropping it would make a window vanish
+    /// from the panel for a reason nobody can see, which is the worse of the two mistakes.
+    static func isShown(windowSpaces: Set<Int>, on current: Set<Int>) -> Bool {
+        windowSpaces.isEmpty || current.isEmpty || !windowSpaces.isDisjoint(with: current)
     }
 }

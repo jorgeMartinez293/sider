@@ -212,4 +212,64 @@ enum AccessibilityBridge {
         AXUIElementSetMessagingTimeout(element, timeout)
         return element
     }
+
+    // MARK: - Windows the app does not list
+
+    /// `_AXUIElementCreateWithRemoteToken` builds an element straight from the token an app
+    /// would hand out for it: the pid, a fixed `'coco'` marker and the element's id inside
+    /// that app. It is how AltTab reaches windows on other Spaces, and the only way there is.
+    ///
+    /// Resolved with `dlsym` for the same reason as `_AXUIElementGetWindow`: if it disappears,
+    /// sider loses the fallback, not the ability to launch.
+    private typealias CreateWithRemoteTokenFn = @convention(c) (CFData) -> Unmanaged<AXUIElement>?
+
+    private static let createWithRemoteToken: CreateWithRemoteTokenFn? = {
+        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2) /* RTLD_DEFAULT */,
+                              "_AXUIElementCreateWithRemoteToken") else {
+            Logger.log("AccessibilityBridge: _AXUIElementCreateWithRemoteToken unavailable")
+            return nil
+        }
+        return unsafeBitCast(sym, to: CreateWithRemoteTokenFn.self)
+    }()
+
+    /// Finds the Accessibility elements for windows of `pid` that `kAXWindowsAttribute` left
+    /// out, by trying element ids one after another until every window in `wanted` turns up.
+    ///
+    /// Why it is needed: an app answers `kAXWindowsAttribute` from its *own* idea of which
+    /// desktop is on screen, and it updates that idea on its own schedule after a Space
+    /// switch. Ask too soon and a window sitting right in front of the user is missing from
+    /// the list. The WindowServer knows better, so the caller asks it which windows exist and
+    /// comes here only for the ones the app did not mention.
+    ///
+    /// Expensive — up to a thousand IPC round trips — which is why it is bounded by `budget`,
+    /// stops as soon as everything wanted is found, and why the caller remembers the answer.
+    static func windows(pid: pid_t, matching wanted: Set<CGWindowID>,
+                        budget: TimeInterval = 0.2) -> [CGWindowID: AXUIElement] {
+        guard let create = createWithRemoteToken, !wanted.isEmpty else { return [:] }
+
+        var token = Data(count: 20)
+        token.withUnsafeMutableBytes { raw in
+            raw.storeBytes(of: pid, toByteOffset: 0, as: pid_t.self)
+            raw.storeBytes(of: Int32(0), toByteOffset: 4, as: Int32.self)
+            raw.storeBytes(of: Int32(0x636f_636f), toByteOffset: 8, as: Int32.self)   // 'coco'
+        }
+
+        var found: [CGWindowID: AXUIElement] = [:]
+        let deadline = Date().addingTimeInterval(budget)
+        // Window ids measured on macOS 27 sit well under 200; a thousand leaves room for an
+        // app with a long history of opened and closed windows.
+        for elementID in UInt64(0)..<1000 {
+            if Date() > deadline { break }
+            token.withUnsafeMutableBytes { $0.storeBytes(of: elementID, toByteOffset: 12, as: UInt64.self) }
+            guard let element = create(token as CFData)?.takeRetainedValue() else { continue }
+            // Short: a busy app must run out the budget, not hang the scan once per id.
+            AXUIElementSetMessagingTimeout(element, 0.1)
+            guard string(element, kAXRoleAttribute) == kAXWindowRole as String,
+                  let id = windowID(of: element), wanted.contains(id)
+            else { continue }
+            found[id] = element
+            if found.count == wanted.count { break }
+        }
+        return found
+    }
 }

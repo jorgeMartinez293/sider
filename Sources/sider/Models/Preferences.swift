@@ -47,6 +47,28 @@ enum PanelScreen: String, CaseIterable, Identifiable {
     }
 }
 
+/// How the sidebar's and the notch's border is drawn.
+enum BorderStyle: String, CaseIterable, Identifiable {
+    /// Crisp, uniform stroke.
+    case line
+    /// Uniform stroke with a blurred halo around it.
+    case glow
+    /// Specular rim light, like the edge of a native macOS widget: brightest where the light
+    /// hits (`Preferences.borderLightAngle`), fading out along the outline, with a fainter
+    /// bounce on the far side, so the panel reads as a lit slab.
+    case sheen
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .line:  return "Line"
+        case .glow:  return "Glow"
+        case .sheen: return "Sheen"
+        }
+    }
+}
+
 /// How the panel draws the windows it holds.
 enum PanelStyle: String, CaseIterable, Identifiable {
     /// Tilted cards floating straight on the desktop, Stage Manager style. The default.
@@ -103,6 +125,7 @@ final class Preferences: ObservableObject {
         static let hasCompletedWelcome = "hasCompletedWelcome"
         static let clickOutsideDismisses = "clickOutsideDismisses"
         static let openOnCurrentSpace = "openOnCurrentSpace"
+        static let currentDesktopOnly = "currentDesktopOnly"
         static let dropToMinimize = "dropToMinimize"
         static let hideMinimized = "hideMinimized"
         static let centeredStack = "centeredStack"
@@ -114,6 +137,8 @@ final class Preferences: ObservableObject {
         static let hapticsEnabled = "hapticsEnabled"
         static let borderEnabled = "borderEnabled"
         static let borderGlow = "borderGlow"
+        static let borderStyle = "borderStyle"
+        static let borderLightAngle = "borderLightAngle"
         static let borderColor = "borderColor"
         static let borderWidth = "borderWidth"
     }
@@ -142,6 +167,7 @@ final class Preferences: ObservableObject {
             Key.showTitles: true,
             Key.clickOutsideDismisses: true,
             Key.openOnCurrentSpace: true,
+            Key.currentDesktopOnly: true,
             Key.dropToMinimize: true,
             Key.hideMinimized: false,
             Key.centeredStack: true,
@@ -158,6 +184,7 @@ final class Preferences: ObservableObject {
             Key.borderGlow: false,
             Key.borderColor: Self.defaultBorderColor,
             Key.borderWidth: 3.0,
+            Key.borderLightAngle: 135.0,
             Key.hasCompletedWelcome: false,
         ])
     }
@@ -221,6 +248,17 @@ final class Preferences: ObservableObject {
     var openOnCurrentSpace: Bool {
         get { defaults.bool(forKey: Key.openOnCurrentSpace) && SpacesBridge.shared.isUsable }
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.openOnCurrentSpace) }
+    }
+
+    /// Whether the panel only holds windows that belong to the desktop on screen, minimized
+    /// ones included. On by default: a window cannot be brought to you from another desktop
+    /// (see `SpacesBridge`), so its card would only be a way to get thrown over there.
+    ///
+    /// Off, the panel collects from every desktop — "every window" then really means every
+    /// window, including the open ones on desktops you are not looking at.
+    var currentDesktopOnly: Bool {
+        get { defaults.bool(forKey: Key.currentDesktopOnly) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.currentDesktopOnly) }
     }
 
     /// Whether minimized windows are left out of the panel. Only meaningful in the wider
@@ -307,10 +345,23 @@ final class Preferences: ObservableObject {
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.borderEnabled) }
     }
 
-    /// Whether a blurred halo is layered under the crisp border stroke.
-    var borderGlow: Bool {
-        get { defaults.bool(forKey: Key.borderGlow) }
-        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.borderGlow) }
+    /// How the border is drawn. Before styles existed this was a "glow" toggle, so a value
+    /// never chosen falls back to what that toggle said.
+    var borderStyle: BorderStyle {
+        get {
+            if let raw = defaults.string(forKey: Key.borderStyle), let style = BorderStyle(rawValue: raw) {
+                return style
+            }
+            return defaults.bool(forKey: Key.borderGlow) ? .glow : .line
+        }
+        set { objectWillChange.send(); defaults.set(newValue.rawValue, forKey: Key.borderStyle) }
+    }
+
+    /// Direction the sheen's light comes FROM, in degrees counterclockwise from the right
+    /// (0 = right, 90 = top, 135 = top-left). Only used by `BorderStyle.sheen`.
+    var borderLightAngle: Double {
+        get { defaults.double(forKey: Key.borderLightAngle) }
+        set { objectWillChange.send(); defaults.set(newValue.clamped(0, 360), forKey: Key.borderLightAngle) }
     }
 
     /// Stored as four sRGB components, since `UserDefaults` has no colour type.

@@ -77,6 +77,11 @@ feature. Turning off *"When switching to an application, switch to a Space with 
 for the application"* does not help: it stops the jump, but the window still reappears on its
 own desktop, so you end up with neither.
 
+That is why, by default, the panel only holds the windows of the desktop you are on, minimized
+ones included: a card for a window on another desktop would only be a way to get thrown over
+there. *Settings → Only windows on the desktop you are on* turns that off, and then "Every
+window" includes the open windows of every desktop.
+
 sider tests this at runtime rather than assuming, so the setting disappears from Settings on
 the Macs where it cannot work and comes back by itself if it ever can.
 

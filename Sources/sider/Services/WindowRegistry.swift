@@ -31,6 +31,9 @@ final class WindowRegistry: ObservableObject {
     @Published private(set) var needsAccessibility = false
 
     private let scanQueue = DispatchQueue(label: "com.jorge.sider.scan", qos: .userInitiated)
+    /// Where AX observers are registered, and the only queue that touches `observers`. Not
+    /// the main thread: see `attachObserver(pid:)`.
+    private let observerQueue = DispatchQueue(label: "com.jorge.sider.observers", qos: .utility)
     private var observers: [pid_t: AXObserver] = [:]
     private var pollTimer: Timer?
     private var refreshWorkItem: DispatchWorkItem?
@@ -40,6 +43,17 @@ final class WindowRegistry: ObservableObject {
     /// rather than whatever order the Accessibility API happens to return. Keyed the same way
     /// as `ManagedWindow.id`.
     private var minimizedAt: [String: Date] = [:]
+
+    /// Accessibility handles for windows the owning app left out of `kAXWindowsAttribute`,
+    /// found the slow way (`AccessibilityBridge.windows(pid:matching:)`) and kept so that it
+    /// is done once per window rather than once per scan. Touched only on `scanQueue`.
+    private var discovered: [CGWindowID: AXUIElement] = [:]
+
+    /// Windows the WindowServer lists that turned out to have no Accessibility element at all
+    /// — invisible host windows, offscreen buffers — and when that was found out. Retried
+    /// after `notWindowRetry`, in case the search simply ran out of time. `scanQueue` only.
+    private var notWindows: [CGWindowID: Date] = [:]
+    private let notWindowRetry: TimeInterval = 120
 
     /// Poll cadence. The fast one only runs while the panel is on screen — that is the only
     /// time a stale card is visible to anyone.
@@ -62,10 +76,14 @@ final class WindowRegistry: ObservableObject {
                      NSWorkspace.didUnhideApplicationNotification] {
             center.addObserver(self, selector: #selector(workspaceChanged(_:)), name: name, object: nil)
         }
+        center.addObserver(self, selector: #selector(activeSpaceChanged(_:)),
+                           name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
 
-        attachObserversToRunningApps()
-        schedulePoll(interval: idleInterval)
+        // The first scan before the observers: it no longer waits on them, and it is what
+        // the panel shows.
         refresh()
+        schedulePoll(interval: idleInterval)
+        attachObserversToRunningApps()
     }
 
     /// Speeds the poll up while the panel is visible and slows it back down when it closes.
@@ -104,13 +122,29 @@ final class WindowRegistry: ObservableObject {
             return
         }
 
+        let started = Date()
         let scope = Preferences.shared.scope
         let hideMinimized = Preferences.shared.hideMinimized && scope != .minimizedOnly
         let myPID = ProcessInfo.processInfo.processIdentifier
         // Only needed to vet windows without a minimize button, which only the widest scope
         // collects; one WindowServer call per scan rather than per window.
         let visibleIDs = scope == .allWindows ? Self.visibleWindowIDs() : []
+
+        // Which desktop a window is on comes from the WindowServer, never from the
+        // Accessibility list — that list answers a different question. Measured on macOS 27,
+        // an app's `kAXWindowsAttribute` holds its open windows *on the desktop it believes is
+        // on screen* plus its minimized windows *from every desktop*. So taken at face value
+        // it shows the minimized windows of other desktops, and for a moment after a Space
+        // switch (until each app catches up) it holds the old desktop's windows and misses
+        // the new one's.
+        let spaces = SpacesBridge.shared
+        let thisDesktopOnly = Preferences.shared.currentDesktopOnly && spaces.canReadSpaces
+        let currentSpaces = thisDesktopOnly ? spaces.currentSpaces() : []
+        let server = Self.serverWindows(currentSpaces: thisDesktopOnly ? currentSpaces : nil)
+        discovered = discovered.filter { server.spaces[$0.key] != nil }
+        notWindows = notWindows.filter { server.spaces[$0.key] != nil }
         var found: [ManagedWindow] = []
+        var unlistedIDs = Set<CGWindowID>()
 
         for app in NSWorkspace.shared.runningApplications {
             // .regular only in the narrow scopes: accessory apps are menu-bar items, and the
@@ -122,18 +156,44 @@ final class WindowRegistry: ObservableObject {
                 || (scope == .allWindows && app.activationPolicy == .accessory)
             guard policyOK, app.processIdentifier != myPID else { continue }
             guard !app.isTerminated else { continue }
+            // An app the WindowServer has no window for, here or anywhere, is not worth an
+            // Accessibility round trip — and those round trips are the scan. In "every
+            // window" there are dozens of such processes (agents, Safari's web content
+            // processes, several of which run out the full timeout), and asking each of them
+            // took a scan to about four seconds: longer than the poll interval, so the panel
+            // was always showing a list from a desktop or two ago.
+            if server.isComplete, !server.owners.contains(app.processIdentifier) { continue }
+            // Includes the accessory apps left out at launch, now that one has a window.
+            attachObserver(pid: app.processIdentifier)
 
             let appElement = AccessibilityBridge.application(pid: app.processIdentifier)
             let appName = app.localizedName ?? "App"
 
-            for window in AccessibilityBridge.elements(appElement, kAXWindowsAttribute) {
+            let listed = AccessibilityBridge.elements(appElement, kAXWindowsAttribute)
+                .map { (element: $0, id: AccessibilityBridge.windowID(of: $0)) }
+            let unlisted = unlistedWindows(
+                pid: app.processIdentifier,
+                listed: Set(listed.compactMap(\.id)),
+                candidates: server.candidates[app.processIdentifier] ?? [])
+            unlistedIDs.formUnion(unlisted.compactMap(\.id))
+            var seen = Set<CGWindowID>()
+
+            for (window, windowID) in listed + unlisted {
+                if let windowID {
+                    // An app can list the same window twice while it is being re-created.
+                    guard seen.insert(windowID).inserted else { continue }
+                    if thisDesktopOnly,
+                       !SpacesBridge.isShown(windowSpaces: server.spaces[windowID] ?? spaces.spaces(of: windowID),
+                                             on: currentSpaces) {
+                        continue
+                    }
+                }
                 guard AccessibilityBridge.string(window, kAXRoleAttribute) == kAXWindowRole as String
                 else { continue }
 
                 // In the narrow scopes, real windows only — not sheets, palettes or system
                 // dialogs, none of which can be put away independently. See
                 // `isMinimizableWindow` for why this is not simply a subrole check.
-                let windowID = AccessibilityBridge.windowID(of: window)
                 let canMinimize = AccessibilityBridge.isMinimizableWindow(window)
                 if !canMinimize {
                     // "Every window" means every window: settings windows, inspectors and
@@ -205,10 +265,100 @@ final class WindowRegistry: ObservableObject {
         }
 
         DispatchQueue.main.async {
+            // The desktop changed while this scan ran, so it describes the one just left. A
+            // newer scan is already queued by `activeSpaceChanged`; publishing this one would
+            // flash the previous desktop's windows until it lands.
+            if thisDesktopOnly, spaces.currentSpaces() != currentSpaces { return }
             self.minimizedAt = stamps
             self.needsAccessibility = false
+            if self.windows.map(\.id) != ordered.map(\.id) {
+                // Counts only, never titles. Enough to tell from a user's log whether the
+                // desktop filter or the apps' own lists are behind a card that is missing or
+                // should not be there.
+                let recovered = ordered.filter { $0.windowID.map(unlistedIDs.contains) ?? false }.count
+                Logger.log("WindowRegistry: \(ordered.count) windows"
+                    + (thisDesktopOnly ? " on desktop \(currentSpaces.sorted())" : " on every desktop")
+                    + (recovered > 0 ? ", \(recovered) not listed by their app" : "")
+                    + ", scanned in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+            }
             if self.windows != ordered { self.windows = ordered }
         }
+    }
+
+    /// Windows of `pid` among `candidates` (already narrowed to the desktops being shown) that
+    /// the app itself did not list — with an Accessibility element for each one that has one.
+    ///
+    /// This is what fills the gap right after a Space switch, when an app's own list still
+    /// describes the previous desktop, and what makes "every window" with the desktop filter
+    /// off include the open windows of other desktops, which no app ever lists. Found the
+    /// slow way once, then remembered; see `discovered` and `notWindows`.
+    private func unlistedWindows(pid: pid_t, listed: Set<CGWindowID>,
+                                 candidates: [CGWindowID]) -> [(element: AXUIElement, id: CGWindowID?)] {
+        let now = Date()
+        let missing = candidates.filter { id in
+            !listed.contains(id)
+                && notWindows[id].map { now.timeIntervalSince($0) > notWindowRetry } ?? true
+        }
+        let unknown = Set(missing.filter { discovered[$0] == nil })
+        if !unknown.isEmpty {
+            let found = AccessibilityBridge.windows(pid: pid, matching: unknown)
+            for id in unknown {
+                if let element = found[id] { discovered[id] = element } else { notWindows[id] = now }
+            }
+        }
+        return missing.compactMap { id in discovered[id].map { (element: $0, id: id) } }
+    }
+
+    /// What the WindowServer knows about the windows sider could show, read once per scan.
+    private struct ServerWindows {
+        /// False when the WindowServer could not be asked. Then nothing here can be trusted
+        /// to rule an app out, and every app is asked the old way.
+        var isComplete = false
+        /// The Spaces of every window below the status-bar level, on any desktop.
+        var spaces: [CGWindowID: Set<Int>] = [:]
+        /// Apps with at least one such window placed on a desktop the panel is showing —
+        /// minimized and hidden windows keep their Space, so they count. Nobody else is asked.
+        var owners = Set<pid_t>()
+        /// Ordinary-level windows big enough to be worked in, by owner: what
+        /// `unlistedWindows` checks the apps' own answers against. Slivers (tab-bar and
+        /// title-bar helpers) are left out up front so they never cost a search.
+        var candidates: [pid_t: [CGWindowID]] = [:]
+    }
+
+    /// Reads `ServerWindows`. `currentSpaces` nil means every desktop counts.
+    ///
+    /// One window list and one Space query per window — a few milliseconds for the whole Mac,
+    /// against tens of milliseconds for a single Accessibility call to a single app.
+    private static func serverWindows(currentSpaces: Set<Int>?) -> ServerWindows {
+        var result = ServerWindows()
+        let options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
+        guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            return result
+        }
+        result.isComplete = SpacesBridge.shared.canReadSpaces
+        let ceiling = Int(CGWindowLevelForKey(.statusWindow))
+        for info in list {
+            guard let layer = info[kCGWindowLayer as String] as? Int, layer >= 0, layer < ceiling,
+                  let pid = info[kCGWindowOwnerPID as String] as? pid_t,
+                  let id = info[kCGWindowNumber as String] as? CGWindowID
+            else { continue }
+            let windowSpaces = SpacesBridge.shared.spaces(of: id)
+            result.spaces[id] = windowSpaces
+            // On no Space at all: never drawn anywhere, an offscreen buffer rather than
+            // something the user could have lost.
+            guard !windowSpaces.isEmpty else { continue }
+            if let currentSpaces,
+               !SpacesBridge.isShown(windowSpaces: windowSpaces, on: currentSpaces) { continue }
+            result.owners.insert(pid)
+
+            guard layer == 0,
+                  let bounds = info[kCGWindowBounds as String] as? [String: Any],
+                  let width = bounds["Width"] as? Double, let height = bounds["Height"] as? Double,
+                  width > 40, height > 40
+            else { continue }
+            result.candidates[pid, default: []].append(id)
+        }
+        return result
     }
 
     /// Windows the WindowServer is drawing right now below the status-bar level — ordinary
@@ -408,9 +558,9 @@ final class WindowRegistry: ObservableObject {
     // MARK: - Observers
 
     private func attachObserversToRunningApps() {
-        // Accessory apps too: in the "every window" scope their settings windows are listed,
-        // and an observer is cheap enough not to make that conditional.
-        for app in NSWorkspace.shared.runningApplications where app.activationPolicy != .prohibited {
+        // Regular apps only. Accessory apps get one once the WindowServer shows them owning a
+        // window (see `scan()`): most of them never do, and asking costs — see below.
+        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
             attachObserver(pid: app.processIdentifier)
         }
     }
@@ -418,47 +568,92 @@ final class WindowRegistry: ObservableObject {
     /// Window notifications are registered on the *application* element, not per window:
     /// windows come and go constantly and re-registering each one is both slower and racy
     /// (the element can be dead before the call lands).
+    ///
+    /// Registered on `observerQueue`, never on the main thread. Each
+    /// `AXObserverAddNotification` is a synchronous round trip into the app, and processes
+    /// that never answer Accessibility — every one of Safari's web content processes, which
+    /// come and go with its tabs — make each of the eight calls wait out the timeout: two
+    /// seconds per process, measured. Done on the main thread over a dozen of them, that froze
+    /// sider for over twenty seconds at launch, and for two more each time Safari spawned one.
     private func attachObserver(pid: pid_t) {
-        guard pid != ProcessInfo.processInfo.processIdentifier, observers[pid] == nil else { return }
+        observerQueue.async { [self] in
+            guard pid != ProcessInfo.processInfo.processIdentifier, observers[pid] == nil else { return }
 
-        var observer: AXObserver?
-        let callback: AXObserverCallback = { _, _, _, refcon in
-            guard let refcon else { return }
-            let registry = Unmanaged<WindowRegistry>.fromOpaque(refcon).takeUnretainedValue()
-            registry.refresh()
-        }
-        guard AXObserverCreate(pid, callback, &observer) == .success, let observer else { return }
+            var observer: AXObserver?
+            let callback: AXObserverCallback = { _, _, _, refcon in
+                guard let refcon else { return }
+                let registry = Unmanaged<WindowRegistry>.fromOpaque(refcon).takeUnretainedValue()
+                registry.refresh()
+            }
+            guard AXObserverCreate(pid, callback, &observer) == .success, let observer else { return }
 
-        let element = AccessibilityBridge.application(pid: pid)
-        let refcon = Unmanaged.passUnretained(self).toOpaque()
-        for name in [kAXWindowMiniaturizedNotification,
-                     kAXWindowDeminiaturizedNotification,
-                     kAXWindowCreatedNotification,
-                     kAXFocusedWindowChangedNotification,
-                     kAXApplicationHiddenNotification,
-                     kAXApplicationShownNotification,
-                     kAXTitleChangedNotification,
-                     kAXUIElementDestroyedNotification] {
-            AXObserverAddNotification(observer, element, name as CFString, refcon)
+            let element = AccessibilityBridge.application(pid: pid)
+            let refcon = Unmanaged.passUnretained(self).toOpaque()
+            for name in [kAXWindowMiniaturizedNotification,
+                         kAXWindowDeminiaturizedNotification,
+                         kAXWindowCreatedNotification,
+                         kAXFocusedWindowChangedNotification,
+                         kAXApplicationHiddenNotification,
+                         kAXApplicationShownNotification,
+                         kAXTitleChangedNotification,
+                         kAXUIElementDestroyedNotification] {
+                // An app that does not answer the first will not answer the other seven.
+                // Left unregistered, so the next scan that finds it owning a window tries again.
+                if AXObserverAddNotification(observer, element, name as CFString, refcon) == .cannotComplete {
+                    return
+                }
+            }
+            // CFRunLoopAddSource is thread-safe; the callback still runs on the main thread.
+            CFRunLoopAddSource(CFRunLoopGetMain(),
+                               AXObserverGetRunLoopSource(observer),
+                               .defaultMode)
+            observers[pid] = observer
         }
-        CFRunLoopAddSource(CFRunLoopGetMain(),
-                           AXObserverGetRunLoopSource(observer),
-                           .defaultMode)
-        observers[pid] = observer
     }
 
     private func detachObserver(pid: pid_t) {
-        guard let observer = observers.removeValue(forKey: pid) else { return }
-        CFRunLoopRemoveSource(CFRunLoopGetMain(),
-                              AXObserverGetRunLoopSource(observer),
-                              .defaultMode)
+        observerQueue.async { [self] in
+            guard let observer = observers.removeValue(forKey: pid) else { return }
+            CFRunLoopRemoveSource(CFRunLoopGetMain(),
+                                  AXObserverGetRunLoopSource(observer),
+                                  .defaultMode)
+        }
+    }
+
+    /// The user moved to another desktop (or a display's desktop changed under them).
+    ///
+    /// Until now nothing listened for this, so the panel kept the previous desktop's list
+    /// until the next poll — up to four seconds of the wrong windows, or of "nothing here"
+    /// with the hover refusing to open.
+    @objc private func activeSpaceChanged(_ note: Notification) {
+        // The cards on hand belong to the desktop just left. Dropping the ones that are not
+        // on this desktop right away — one WindowServer query per card, no Accessibility —
+        // means a panel opened before the next scan lands never shows the old desktop.
+        let spaces = SpacesBridge.shared
+        if Preferences.shared.currentDesktopOnly, spaces.canReadSpaces {
+            let current = spaces.currentSpaces()
+            let kept = windows.filter { window in
+                window.windowID.map {
+                    SpacesBridge.isShown(windowSpaces: spaces.spaces(of: $0), on: current)
+                } ?? true
+            }
+            if kept != windows { windows = kept }
+        }
+        refresh()
+        // Apps catch up with the switch on their own schedule, and a scan that lands before
+        // they have still has to go the slow way for each window they left out. A second
+        // look once they have settled is cheap and costs nothing if nothing changed.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.refresh() }
     }
 
     @objc private func workspaceChanged(_ note: Notification) {
         let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
         switch note.name {
         case NSWorkspace.didLaunchApplicationNotification:
-            if let pid = app?.processIdentifier {
+            // Regular apps only, as at launch; an accessory app is picked up by the scan once it
+            // owns a window. Safari alone launches a web content process for every few tabs.
+            if let app, app.activationPolicy == .regular {
+                let pid = app.processIdentifier
                 // A just-launched app has no AX element for a moment; registering too early
                 // silently fails and that app then never reports anything.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.attachObserver(pid: pid) }

@@ -3,6 +3,20 @@
     <channel>
         <title>sider</title>
         <item>
+            <title>1.4</title>
+            <pubDate>Wed, 28 Oct 2026 19:31:47 +0100</pubDate>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>1.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/jorgeMartinez293/sider-releases/releases/latest/download/sider-1.4.zip" length="3674326" type="application/octet-stream" sparkle:edSignature="Ck/bE6qb9EfJdJ1ljyaWagBQKagngZnuEFbSlGlOw2kSQJybuQn8wyQlXaYst4fCSVRoE4yMz3EJ9YnEEk+uAg=="/>
+            <sparkle:deltas>
+                <enclosure url="https://github.com/jorgeMartinez293/sider-releases/releases/latest/download/sider6-5.delta" sparkle:deltaFrom="5" length="245834" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="xzn1RUajhdRRdcZceKVaXgw+ih77fJ3SHixguVsRgNQErvegJi5jU1stY/NdgC7AGTZCbmV1mnJA4tbrc4fACQ=="/>
+                <enclosure url="https://github.com/jorgeMartinez293/sider-releases/releases/latest/download/sider6-4.delta" sparkle:deltaFrom="4" length="333042" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="HidE8U7ZeAwO/NpTk4Ovqx7I6w9ruGkowa/pHhjMGBEv7sM9erVVseKm3r6qBEGsuCpzSg2y4FlCa2m4lXK9Dw=="/>
+                <enclosure url="https://github.com/jorgeMartinez293/sider-releases/releases/latest/download/sider6-3.delta" sparkle:deltaFrom="3" length="375882" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="kq8NpG/dZBrkoDJhGTLjlplUkF+VmsARA4xKBtwbBZGwy4rm8jJ7a0h68iWpv+xD9nvPhfjWN53T1o5PNsCGDw=="/>
+                <enclosure url="https://github.com/jorgeMartinez293/sider-releases/releases/latest/download/sider6-2.delta" sparkle:deltaFrom="2" length="472194" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="gphT7naByZWwSA2Zdss9n7ykRGRGs/yAikbYameo13IYCwH6TQJ1FX1R8MxpU57D8oOsBqzuraWaGipF78JYCw=="/>
+            </sparkle:deltas>
+        </item>
+        <item>
             <title>1.3</title>
             <pubDate>Fri, 16 Oct 2026 19:10:36 +0200</pubDate>
             <sparkle:version>5</sparkle:version>
@@ -25,17 +39,6 @@
             <sparkle:deltas>
                 <enclosure url="https://github.com/jorgeMartinez293/sider-releases/releases/latest/download/sider4-3.delta" sparkle:deltaFrom="3" length="213182" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="QjxhetP25BiFGI9cSbkLey/Dxz62jiI5dnDaucqniF0zgQ8MvC5qxj5+4HcUz6KP+8rTvBtXBDCKDY54oOYrCQ=="/>
                 <enclosure url="https://github.com/jorgeMartinez293/sider-releases/releases/latest/download/sider4-2.delta" sparkle:deltaFrom="2" length="350602" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="3YU3oSTN3ZVnLJX7d5PlkBNSc+oCYKUAJmnvlEu05c4kCU0wgWSjhzOJsIpyrj6/GRrr6kP8xxibmR2zYv6GCg=="/>
-            </sparkle:deltas>
-        </item>
-        <item>
-            <title>1.1</title>
-            <pubDate>Tue, 06 Oct 2026 17:10:05 +0200</pubDate>
-            <sparkle:version>3</sparkle:version>
-            <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/jorgeMartinez293/sider-releases/releases/latest/download/sider-1.1.zip" length="3468108" type="application/octet-stream" sparkle:edSignature="Kxw07bPwMIM0trn9GqUJb9xKUuzfeor3uU6eYHlqR6IOYHozL88DCCgXfJeX+xIZTQP2qYrNZiq4FGFj3UFfCw=="/>
-            <sparkle:deltas>
-                <enclosure url="https://github.com/jorgeMartinez293/sider-releases/releases/latest/download/sider3-2.delta" sparkle:deltaFrom="2" length="286842" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="ec4P5t4AVR+lDKq5Hd5Iq+6O5/ptMAeJ5SecBTMs+Ij098qOWIzolI1lpfpAsNqNGp9phZzzbrw2/F4LE5ZYDA=="/>
             </sparkle:deltas>
         </item>
     </channel>

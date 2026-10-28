@@ -40,6 +40,10 @@ struct SettingsView: View {
                                  set: { prefs.hideMinimized = $0 }))
                 // With only minimized windows collected, this would empty the panel.
                 .disabled(prefs.scope == .minimizedOnly)
+            Toggle("Only windows on the desktop you are on",
+                   isOn: Binding(get: { prefs.currentDesktopOnly },
+                                 set: { prefs.currentDesktopOnly = $0 }))
+                .disabled(!spaces.canReadSpaces)
 
             Picker("Open on", selection: Binding(get: { prefs.screen }, set: { prefs.screen = $0 })) {
                 ForEach(PanelScreen.allCases) { screen in
@@ -140,16 +144,25 @@ struct SettingsView: View {
                 Toggle("Border", isOn: Binding(get: { prefs.borderEnabled },
                                                set: { prefs.borderEnabled = $0 }))
                 if prefs.borderEnabled {
-                    Toggle("Add glow", isOn: Binding(get: { prefs.borderGlow },
-                                                     set: { prefs.borderGlow = $0 }))
+                    Picker("Style", selection: Binding(get: { prefs.borderStyle },
+                                                       set: { prefs.borderStyle = $0 })) {
+                        ForEach(BorderStyle.allCases) { style in
+                            Text(style.title).tag(style)
+                        }
+                    }
                     ColorPicker("Color", selection: Binding(get: { Color(nsColor: prefs.borderColor) },
                                                             set: { prefs.borderColor = NSColor($0) }))
                     slider("Thickness", value: Binding(get: { prefs.borderWidth },
                                                        set: { prefs.borderWidth = $0 }),
                            range: 1...12, unit: "pt")
+                    if prefs.borderStyle == .sheen {
+                        slider("Light direction", value: Binding(get: { prefs.borderLightAngle },
+                                                                 set: { prefs.borderLightAngle = $0 }),
+                               range: 0...360, unit: "°")
+                    }
                 }
             } footer: {
-                Text("A coloured edge along the sidebar or the notch. Floating cards have no surface to outline.")
+                Text("A coloured edge along the sidebar or the notch. Floating cards have no surface to outline.\(prefs.borderStyle == .sheen ? "\n\nThe sheen is brightest on the side the light comes from — 90° is the top, 180° the left — and fades away from it." : "")")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .disabled(!prefs.style.isSolid)
